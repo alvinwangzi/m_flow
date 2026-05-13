@@ -1212,7 +1212,10 @@ class KuzuAdapter(GraphProvider):
         for i, flt in enumerate(attribute_filters):
             for attr, vals in flt.items():
                 pname = f"vals_{i}_{attr}"
-                where_parts.append(f"n.{attr} IN ${pname}")
+                if attr in {"id", "name", "type", "created_at", "updated_at"}:
+                    where_parts.append(f"n.{attr} IN ${pname}")
+                else:
+                    where_parts.append(f"json_extract_string(n.properties, '$.{attr}') IN ${pname}")
                 params[pname] = vals
 
         where_clause = " AND ".join(where_parts)

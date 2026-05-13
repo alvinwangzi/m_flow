@@ -92,16 +92,21 @@ class LiteLLMEmbeddingEngine(EmbeddingEngine):
             if self.mock:
                 return [[0.0] * self.dimensions for _ in text]
 
-            async with embedding_rate_limiter_context_manager():
-                resp = await litellm.aembedding(
-                    model=self.model,
-                    input=text,
-                    api_key=self.api_key,
-                    api_base=self.endpoint,
-                    api_version=self.api_version,
-                )
+            vectors: List[List[float]] = []
+            batch_size = max(1, int(self.batch_size or len(text) or 1))
+            for start in range(0, len(text), batch_size):
+                batch = text[start : start + batch_size]
+                async with embedding_rate_limiter_context_manager():
+                    resp = await litellm.aembedding(
+                        model=self.model,
+                        input=batch,
+                        api_key=self.api_key,
+                        api_base=self.endpoint,
+                        api_version=self.api_version,
+                    )
+                vectors.extend(d["embedding"] for d in resp.data)
 
-            return [d["embedding"] for d in resp.data]
+            return vectors
 
         except litellm.exceptions.ContextWindowExceededError:
             return await self._handle_context_overflow(text)

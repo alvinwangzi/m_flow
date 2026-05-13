@@ -12,6 +12,7 @@ from uuid import UUID
 from m_flow.adapters.relational import get_db_adapter
 from m_flow.data.models import Data
 from m_flow.pipeline.models import WorkflowRun, RunStatus
+from m_flow.pipeline.operations.update_pipeline_progress import update_pipeline_progress
 
 
 async def record_run_finish(
@@ -51,6 +52,7 @@ async def record_run_finish(
         sess.add(record)
         await sess.commit()
 
+    await update_pipeline_progress(workflow_run_id, current_step="Completed")
     return record
 
 

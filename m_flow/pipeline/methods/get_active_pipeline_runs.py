@@ -78,7 +78,6 @@ async def get_active_pipeline_runs() -> List[Dict[str, Any]]:
                 ranked_subq.c.status.in_(
                     [
                         RunStatus.STARTED,
-                        RunStatus.DATASET_PROCESSING_STARTED,
                     ]
                 )
             )
