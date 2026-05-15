@@ -1,17 +1,41 @@
 "use client";
 
 import React, { useState } from "react";
-import { X, MessageSquare, Save, Loader2 } from "lucide-react";
+import { X, MessageSquare, Save, Loader2, RotateCcw } from "lucide-react";
 
 const LLM_PRESETS: Record<string, { label: string; model: string; endpoint: string; api_key: string }> = {
-  default:    { label: "Default (server config)", model: "", endpoint: "", api_key: "" },
-  hermes:     { label: "Hermes Agent (localhost:3001)", model: "hermes", endpoint: "http://localhost:3001/v1", api_key: "local" },
-  openclaw:   { label: "OpenClaw (localhost:3100)", model: "openclaw", endpoint: "http://localhost:3100/v1", api_key: "local" },
-  clawcode:   { label: "Claw Code (localhost:3003)", model: "claw-code", endpoint: "http://localhost:3003/v1", api_key: "local" },
+  default: { label: "Default (server config)", model: "", endpoint: "", api_key: "" },
+  hermes: { label: "Hermes Agent (localhost:3001)", model: "hermes", endpoint: "http://localhost:3001/v1", api_key: "local" },
+  openclaw: { label: "OpenClaw (localhost:3100)", model: "openclaw", endpoint: "http://localhost:3100/v1", api_key: "local" },
+  clawcode: { label: "Claw Code (localhost:3003)", model: "claw-code", endpoint: "http://localhost:3003/v1", api_key: "local" },
   claudecode: { label: "Claude Code Gateway (localhost:3002)", model: "claude-opus-4-6", endpoint: "http://localhost:3002/v1", api_key: "local" },
-  ollama:     { label: "Ollama (localhost:11434)", model: "llama3", endpoint: "http://localhost:11434/v1", api_key: "ollama" },
-  custom:     { label: "Custom endpoint", model: "", endpoint: "", api_key: "" },
+  ollama: { label: "Ollama (localhost:11434)", model: "llama3", endpoint: "http://localhost:11434/v1", api_key: "ollama" },
+  custom: { label: "Custom endpoint", model: "", endpoint: "", api_key: "" },
 };
+
+const PROMPT_TEMPLATES: Array<{ label: string; value: string }> = [
+  {
+    label: "Professional Consultant",
+    value:
+      "You are a professional consultant. Answer clearly, concisely, and practically. " +
+      "Structure responses with a short conclusion first, then supporting points. " +
+      "If there is uncertainty, state it explicitly instead of guessing.",
+  },
+  {
+    label: "Knowledge Base QA",
+    value:
+      "You are a knowledge-base assistant. Base your answer on the provided context first. " +
+      "If the context is insufficient, say so directly. " +
+      "Use bullet points when they improve clarity.",
+  },
+  {
+    label: "Structured Output",
+    value:
+      "You are a precise assistant. Always reply using this format:\n" +
+      "1. Summary\n2. Key Points\n3. Risks or Unknowns\n" +
+      "Keep wording direct and avoid unnecessary filler.",
+  },
+];
 
 interface PlaygroundSettingsProps {
   sessionId: string;
@@ -24,12 +48,20 @@ interface PlaygroundSettingsProps {
     llm_model?: string;
     llm_endpoint?: string;
     llm_api_key?: string;
+    custom_system_prompt?: string;
   };
   onClose: () => void;
   onSaved: (config: Record<string, any>) => void;
 }
 
-export function PlaygroundSettings({ sessionId, apiBase, headers, currentConfig, onClose, onSaved }: PlaygroundSettingsProps) {
+export function PlaygroundSettings({
+  sessionId,
+  apiBase,
+  headers,
+  currentConfig,
+  onClose,
+  onSaved,
+}: PlaygroundSettingsProps) {
   const [tokenThreshold, setTokenThreshold] = useState(currentConfig.flush_token_threshold);
   const [turnThreshold, setTurnThreshold] = useState(currentConfig.flush_turn_threshold);
 
@@ -37,7 +69,9 @@ export function PlaygroundSettings({ sessionId, apiBase, headers, currentConfig,
   const [llmModel, setLlmModel] = useState(currentConfig.llm_model || "");
   const [llmEndpoint, setLlmEndpoint] = useState(currentConfig.llm_endpoint || "");
   const [llmApiKey, setLlmApiKey] = useState(currentConfig.llm_api_key || "");
+  const [customSystemPrompt, setCustomSystemPrompt] = useState(currentConfig.custom_system_prompt || "");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   function handlePresetChange(preset: string) {
     setLlmPreset(preset);
@@ -49,13 +83,11 @@ export function PlaygroundSettings({ sessionId, apiBase, headers, currentConfig,
     }
   }
 
-  const [error, setError] = useState<string | null>(null);
-
   async function handleSave() {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`${apiBase}/api/v1/playground/set-llm`, {
+      const llmRes = await fetch(`${apiBase}/api/v1/playground/set-llm`, {
         method: "POST",
         headers: headers(),
         body: JSON.stringify({
@@ -65,24 +97,44 @@ export function PlaygroundSettings({ sessionId, apiBase, headers, currentConfig,
           api_key: llmApiKey,
         }),
       });
-      if (!res.ok) {
-        setError(`Failed to update LLM settings (${res.status})`);
+      if (!llmRes.ok) {
+        setError(`Failed to update LLM settings (${llmRes.status})`);
         setSaving(false);
         return;
       }
-      const data = await res.json();
-      if (data.ok === false) {
-        setError(data.error || "Failed to update LLM settings");
+      const llmData = await llmRes.json();
+      if (llmData.ok === false) {
+        setError(llmData.error || "Failed to update LLM settings");
+        setSaving(false);
+        return;
+      }
+
+      const promptRes = await fetch(`${apiBase}/api/v1/playground/set-prompt`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({
+          session_id: sessionId,
+          system_prompt: customSystemPrompt,
+        }),
+      });
+      if (!promptRes.ok) {
+        setError(`Failed to update custom prompt (${promptRes.status})`);
+        setSaving(false);
+        return;
+      }
+      const promptData = await promptRes.json();
+      if (promptData.ok === false) {
+        setError(promptData.error || "Failed to update custom prompt");
         setSaving(false);
         return;
       }
     } catch {
-      setError("Network error — settings not saved");
+      setError("Network error - settings not saved");
       setSaving(false);
       return;
     }
-    setSaving(false);
 
+    setSaving(false);
     onSaved({
       flush_token_threshold: tokenThreshold,
       flush_turn_threshold: turnThreshold,
@@ -90,6 +142,7 @@ export function PlaygroundSettings({ sessionId, apiBase, headers, currentConfig,
       llm_model: llmModel,
       llm_endpoint: llmEndpoint,
       llm_api_key: llmApiKey,
+      custom_system_prompt: customSystemPrompt,
     });
     onClose();
   }
@@ -98,7 +151,10 @@ export function PlaygroundSettings({ sessionId, apiBase, headers, currentConfig,
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-[#141414] border border-[#2a2a2a] rounded-xl w-[420px] max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div
+        className="bg-[#141414] border border-[#2a2a2a] rounded-xl w-[420px] max-h-[85vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between px-5 py-4 border-b border-[#2a2a2a]">
           <div className="flex items-center gap-2">
             <MessageSquare size={16} className="text-[#6b8afd]" />
@@ -110,28 +166,28 @@ export function PlaygroundSettings({ sessionId, apiBase, headers, currentConfig,
         </div>
 
         <div className="p-5 space-y-5">
-          {/* LLM Provider */}
           <div>
             <div className="text-xs text-[#808080] mb-2">LLM Provider</div>
             <select
               value={llmPreset}
-              onChange={e => handlePresetChange(e.target.value)}
+              onChange={(e) => handlePresetChange(e.target.value)}
               className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-[#e0e0e0] focus:outline-none focus:border-[#6b8afd]"
             >
               {Object.entries(LLM_PRESETS).map(([key, p]) => (
-                <option key={key} value={key}>{p.label}</option>
+                <option key={key} value={key}>
+                  {p.label}
+                </option>
               ))}
             </select>
           </div>
 
-          {/* Model + Endpoint (shown for non-default) */}
           {llmPreset !== "default" && (
             <div className="space-y-3 p-3 rounded-lg bg-[#0a0a0a] border border-[#2a2a2a]">
               <div>
                 <label className="block text-[10px] text-[#686868] mb-1">Model</label>
                 <input
                   value={llmModel}
-                  onChange={e => setLlmModel(e.target.value)}
+                  onChange={(e) => setLlmModel(e.target.value)}
                   disabled={!isCustom}
                   placeholder="e.g. hermes, llama3, gpt-4o"
                   className="w-full bg-[#141414] border border-[#2a2a2a] rounded px-2.5 py-1.5 text-xs text-[#e0e0e0] placeholder-[#404040] focus:outline-none focus:border-[#6b8afd] disabled:opacity-50"
@@ -141,7 +197,7 @@ export function PlaygroundSettings({ sessionId, apiBase, headers, currentConfig,
                 <label className="block text-[10px] text-[#686868] mb-1">Endpoint URL</label>
                 <input
                   value={llmEndpoint}
-                  onChange={e => setLlmEndpoint(e.target.value)}
+                  onChange={(e) => setLlmEndpoint(e.target.value)}
                   disabled={!isCustom}
                   placeholder="e.g. http://localhost:3001/v1"
                   className="w-full bg-[#141414] border border-[#2a2a2a] rounded px-2.5 py-1.5 text-xs text-[#e0e0e0] placeholder-[#404040] focus:outline-none focus:border-[#6b8afd] disabled:opacity-50"
@@ -153,7 +209,7 @@ export function PlaygroundSettings({ sessionId, apiBase, headers, currentConfig,
                   <input
                     type="password"
                     value={llmApiKey}
-                    onChange={e => setLlmApiKey(e.target.value)}
+                    onChange={(e) => setLlmApiKey(e.target.value)}
                     placeholder="Optional for local models"
                     className="w-full bg-[#141414] border border-[#2a2a2a] rounded px-2.5 py-1.5 text-xs text-[#e0e0e0] placeholder-[#404040] focus:outline-none focus:border-[#6b8afd]"
                   />
@@ -162,13 +218,63 @@ export function PlaygroundSettings({ sessionId, apiBase, headers, currentConfig,
             </div>
           )}
 
-          {/* Memory thresholds */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <label className="block text-xs text-[#808080]">Custom System Prompt</label>
+                <span
+                  className={`px-1.5 py-0.5 rounded border text-[10px] ${
+                    customSystemPrompt.trim()
+                      ? "bg-[#132018] text-[#7fd19a] border-[#21452d]"
+                      : "bg-[#16181d] text-[#8a93a8] border-[#2a2f39]"
+                  }`}
+                >
+                  {customSystemPrompt.trim() ? "Custom Prompt" : "Default Prompt"}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCustomSystemPrompt("")}
+                className="inline-flex items-center gap-1 text-[10px] text-[#808080] hover:text-[#e0e0e0] transition-colors"
+              >
+                <RotateCcw size={10} />
+                Reset to Default
+              </button>
+            </div>
+            <div className="mb-3 flex flex-wrap gap-2">
+              {PROMPT_TEMPLATES.map((tpl) => (
+                <button
+                  key={tpl.label}
+                  type="button"
+                  onClick={() => setCustomSystemPrompt(tpl.value)}
+                  className="px-2.5 py-1 rounded-md border border-[#2a2a2a] bg-[#111318] text-[10px] text-[#9aa3b7] hover:text-[#e0e0e0] hover:border-[#3a4252] transition-colors"
+                >
+                  {tpl.label}
+                </button>
+              ))}
+            </div>
+            <textarea
+              value={customSystemPrompt}
+              onChange={(e) => setCustomSystemPrompt(e.target.value)}
+              placeholder="Define assistant persona, tone, output template, and response rules. Leave blank to use the default playground prompt."
+              className="w-full min-h-[140px] bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-[#e0e0e0] placeholder-[#404040] focus:outline-none focus:border-[#6b8afd] resize-y"
+            />
+            <p className="mt-2 text-[11px] text-[#6f7788]">
+              This overrides the default playground assistant prompt. Dynamic context like people in frame,
+              current speaker, and retrieved memories will still be appended automatically.
+            </p>
+          </div>
+
           <div>
             <div className="text-xs text-[#808080] mb-2">Memory Flush Token Threshold</div>
             <div className="relative">
               <input
-                type="range" min={500} max={5000} step={100} value={tokenThreshold}
-                onChange={e => setTokenThreshold(Number(e.target.value))}
+                type="range"
+                min={500}
+                max={5000}
+                step={100}
+                value={tokenThreshold}
+                onChange={(e) => setTokenThreshold(Number(e.target.value))}
                 className="w-full accent-[#6b8afd]"
               />
             </div>
@@ -177,7 +283,10 @@ export function PlaygroundSettings({ sessionId, apiBase, headers, currentConfig,
                 <span>500</span>
                 <span>5000</span>
               </div>
-              <div className="absolute top-0 text-[10px] text-[#e0e0e0] font-medium tabular-nums pointer-events-none" style={{ left: `calc(${(tokenThreshold - 500) / 4500 * 100}%)`, transform: "translateX(-50%)" }}>
+              <div
+                className="absolute top-0 text-[10px] text-[#e0e0e0] font-medium tabular-nums pointer-events-none"
+                style={{ left: `calc(${((tokenThreshold - 500) / 4500) * 100}%)`, transform: "translateX(-50%)" }}
+              >
                 {tokenThreshold}
               </div>
             </div>
@@ -187,8 +296,12 @@ export function PlaygroundSettings({ sessionId, apiBase, headers, currentConfig,
             <div className="text-xs text-[#808080] mb-2">Memory Flush Turn Threshold</div>
             <div className="relative">
               <input
-                type="range" min={3} max={30} step={1} value={turnThreshold}
-                onChange={e => setTurnThreshold(Number(e.target.value))}
+                type="range"
+                min={3}
+                max={30}
+                step={1}
+                value={turnThreshold}
+                onChange={(e) => setTurnThreshold(Number(e.target.value))}
                 className="w-full accent-[#6b8afd]"
               />
             </div>
@@ -197,7 +310,10 @@ export function PlaygroundSettings({ sessionId, apiBase, headers, currentConfig,
                 <span>3</span>
                 <span>30</span>
               </div>
-              <div className="absolute top-0 text-[10px] text-[#e0e0e0] font-medium tabular-nums pointer-events-none" style={{ left: `calc(${(turnThreshold - 3) / 27 * 100}%)`, transform: "translateX(-50%)" }}>
+              <div
+                className="absolute top-0 text-[10px] text-[#e0e0e0] font-medium tabular-nums pointer-events-none"
+                style={{ left: `calc(${((turnThreshold - 3) / 27) * 100}%)`, transform: "translateX(-50%)" }}
+              >
                 {turnThreshold}
               </div>
             </div>
@@ -210,7 +326,9 @@ export function PlaygroundSettings({ sessionId, apiBase, headers, currentConfig,
           </div>
         )}
         <div className="px-5 py-4 border-t border-[#2a2a2a] flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg text-xs text-[#808080] hover:text-[#e0e0e0]">Cancel</button>
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-xs text-[#808080] hover:text-[#e0e0e0]">
+            Cancel
+          </button>
           <button
             onClick={handleSave}
             disabled={saving}

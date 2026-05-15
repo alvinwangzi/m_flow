@@ -57,6 +57,7 @@ class LLMConfig(MflowSettings):
     llm_temperature: float = 0.0
     llm_streaming: bool = False
     llm_max_completion_tokens: int = 16384
+    llm_reasoning_effort: str = "medium"
 
     # BAML settings
     baml_llm_provider: str = "openai"
@@ -166,6 +167,7 @@ class LLMConfig(MflowSettings):
             "temperature": self.llm_temperature,
             "streaming": self.llm_streaming,
             "max_completion_tokens": self.llm_max_completion_tokens,
+            "reasoning_effort": self.llm_reasoning_effort,
             "transcription_model": self.transcription_model,
             "graph_prompt_path": self.graph_prompt_path,
             "rate_limit_enabled": self.llm_rate_limit_enabled,

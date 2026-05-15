@@ -18,11 +18,9 @@ from .get_seed_user import get_seed_user
 
 _log = get_logger("get_authenticated_user")
 
-# Authentication configuration from environment
-_REQUIRE_AUTH = (
-    os.getenv("REQUIRE_AUTHENTICATION", "true").lower() == "true"
-    or os.environ.get("ENABLE_BACKEND_ACCESS_CONTROL", "true").lower() == "true"
-)
+# Authentication requirement is controlled explicitly. Dataset/user isolation
+# can stay enabled without forcing the local playground/UI through login.
+_REQUIRE_AUTH = os.getenv("REQUIRE_AUTHENTICATION", "true").lower() == "true"
 
 # Public export for testing and configuration checks
 REQUIRE_AUTHENTICATION = _REQUIRE_AUTH

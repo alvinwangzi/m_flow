@@ -14,6 +14,8 @@ import openai
 from m_flow.auth.methods import get_authenticated_user
 from m_flow.auth.models import User
 from m_flow.llm.config import get_llm_config
+from m_flow.llm.debug import build_llm_prompt_debug_payload
+from m_flow.llm.reasoning import apply_reasoning_options, get_reasoning_debug_payload
 from m_flow.shared.logging_utils import get_logger
 
 from ..models import (
@@ -27,6 +29,8 @@ from ..models import (
     RenamePersonRequest,
     VisionActionRequest,
     SetLlmRequest,
+    SetDatasetRequest,
+    SetPromptRequest,
 )
 from ..session import create_session, get_session
 from ..face_bridge import (
@@ -45,6 +49,25 @@ from ..face_bridge import (
 from ..retriever import retrieve_memories
 
 _log = get_logger(__name__)
+
+
+def _build_effective_dataset_ids(
+    *,
+    face_dataset_mapping: dict[int, list[str]],
+    registered_ids: list[int | None],
+    selected_dataset_id: str | None,
+) -> list[str]:
+    """Merge face-linked datasets with the session fallback dataset, preserving order."""
+    all_dataset_ids: list[str] = []
+    for rid in registered_ids:
+        if rid is None:
+            continue
+        for ds_id in face_dataset_mapping.get(rid, []):
+            if ds_id not in all_dataset_ids:
+                all_dataset_ids.append(ds_id)
+    if selected_dataset_id and selected_dataset_id not in all_dataset_ids:
+        all_dataset_ids.append(selected_dataset_id)
+    return all_dataset_ids
 
 
 async def _resolve_coref(query: str, user_id: str, session_id: str):
@@ -212,13 +235,21 @@ def get_playground_router() -> APIRouter:
             persons_lines.append(f"- {name} ({status})")
         persons_desc = "\n".join(persons_lines) if persons_lines else "no one present"
 
-        all_dataset_ids: list[str] = []
-        for p in persons:
-            rid = p.get("registered_id")
-            if rid:
-                for ds_id in session.face_dataset_mapping.get(rid, []):
-                    if ds_id not in all_dataset_ids:
-                        all_dataset_ids.append(ds_id)
+        registered_ids = [p.get("registered_id") for p in persons]
+        all_dataset_ids = _build_effective_dataset_ids(
+            face_dataset_mapping=session.face_dataset_mapping,
+            registered_ids=registered_ids,
+            selected_dataset_id=session.selected_dataset_id,
+        )
+        _log.info(
+            "Playground retrieval datasets resolved",
+            extra={
+                "session_id": session.session_id,
+                "selected_dataset_id": session.selected_dataset_id,
+                "registered_ids": registered_ids,
+                "resolved_dataset_ids": all_dataset_ids,
+            },
+        )
         retrieval = await retrieve_memories(resolved_query, all_dataset_ids, user=user)
         t4 = _t.perf_counter()
 
@@ -234,12 +265,18 @@ def get_playground_router() -> APIRouter:
         if not retrieval.empty:
             memory_section = f"\nRelevant memories:\n{retrieval.context}\n"
 
-        system_prompt = (
-            f"You are the M-Flow Playground AI assistant.\n\n"
+        context_block = (
             f"People present:\n{persons_desc}\n\n"
             f"Current speaker: {speaker_label}\n"
             f"{memory_section}"
         )
+        if session.custom_system_prompt:
+            system_prompt = f"{session.custom_system_prompt.strip()}\n\nContext:\n{context_block}"
+        else:
+            system_prompt = (
+                f"You are the M-Flow Playground AI assistant.\n\n"
+                f"{context_block}"
+            )
 
         recent = session.get_recent_messages(max_turns=20)
         llm_messages = [{"role": "system", "content": system_prompt}]
@@ -358,6 +395,30 @@ def get_playground_router() -> APIRouter:
                     "messages": ctx["llm_messages"],
                     "stream": True,
                 }
+                apply_reasoning_options(
+                    request_kwargs=create_kwargs,
+                    provider=cfg.llm_provider,
+                    model_name=cfg.llm_model,
+                    reasoning_effort=cfg.llm_reasoning_effort,
+                )
+                _log.info(
+                    "Playground LLM reasoning config",
+                    extra=get_reasoning_debug_payload(
+                        provider=cfg.llm_provider,
+                        model_name=cfg.llm_model,
+                        reasoning_effort=cfg.llm_reasoning_effort,
+                        request_kwargs=create_kwargs,
+                    ),
+                )
+                _log.info(
+                    "LLM prompt payload",
+                    extra=build_llm_prompt_debug_payload(
+                        channel="playground",
+                        model=cfg.llm_model,
+                        system_prompt=ctx["llm_messages"][0]["content"],
+                        messages=ctx["llm_messages"],
+                    ),
+                )
                 # Newer models (gpt-5-*) use max_completion_tokens; older use max_tokens
                 if "gpt-5" in model_name or "o1" in model_name or "o3" in model_name:
                     create_kwargs["max_completion_tokens"] = 1024
@@ -402,6 +463,30 @@ def get_playground_router() -> APIRouter:
                 "X-Accel-Buffering": "no",
             },
         )
+
+    @router.post("/set-dataset")
+    async def set_playground_dataset(
+        req: SetDatasetRequest,
+        user: User = Depends(get_authenticated_user),
+    ):
+        """Set or clear the session-level fallback dataset used for retrieval."""
+        session = get_session(req.session_id, user_id=str(user.id))
+        if session is None:
+            return {"ok": False, "error": "Session not found"}
+
+        if req.dataset_id:
+            UUID(req.dataset_id)
+
+        session.selected_dataset_id = req.dataset_id
+        _log.info(
+            "Playground fallback dataset updated",
+            extra={
+                "session_id": session.session_id,
+                "user_id": str(user.id),
+                "dataset_id": session.selected_dataset_id,
+            },
+        )
+        return {"ok": True, "dataset_id": session.selected_dataset_id}
 
     # ------------------------------------------------------------------
     # POST /flush
@@ -735,6 +820,26 @@ def get_playground_router() -> APIRouter:
             f"model={model or '(default)'} endpoint={endpoint or '(default)'}"
         )
         return {"ok": True, "model": model, "endpoint": endpoint}
+
+    @router.post("/set-prompt")
+    async def set_prompt(
+        req: SetPromptRequest,
+        user: User = Depends(get_authenticated_user),
+    ):
+        """Set or clear a custom system prompt for this playground session."""
+        session = get_session(req.session_id, user_id=str(user.id))
+        if session is None:
+            return {"ok": False, "error": "Session not found"}
+
+        prompt = req.system_prompt.strip()
+        session.custom_system_prompt = prompt or None
+
+        _log.info(
+            "Session %s: custom system prompt %s",
+            session.session_id,
+            "set" if session.custom_system_prompt else "cleared",
+        )
+        return {"ok": True, "has_custom_prompt": bool(session.custom_system_prompt)}
 
     def _get_user_sessions(user_id: str):
         """Return only sessions belonging to this user."""

@@ -9,9 +9,15 @@ from __future__ import annotations
 
 from typing import Any, Optional, Type
 
+from m_flow.llm import get_llm_config
+from m_flow.llm.debug import build_llm_prompt_debug_payload
 from m_flow.llm.LLMGateway import LLMService
+from m_flow.llm.reasoning import apply_reasoning_options, get_reasoning_debug_payload
 from m_flow.llm.prompts import read_query_prompt, render_prompt
 from m_flow.knowledge.summarization.summarize_text import compress_text as compress_text
+from m_flow.shared.logging_utils import get_logger
+
+_log = get_logger(__name__)
 
 
 def _build_system_prompt(
@@ -70,6 +76,33 @@ async def generate_completion(
         system_prompt_path,
         system_prompt,
         conversation_history,
+    )
+
+    cfg = get_llm_config()
+    reasoning_probe: dict = {}
+    apply_reasoning_options(
+        request_kwargs=reasoning_probe,
+        provider=cfg.llm_provider,
+        model_name=cfg.llm_model,
+        reasoning_effort=cfg.llm_reasoning_effort,
+    )
+    _log.info(
+        "Retrieval LLM reasoning config",
+        extra=get_reasoning_debug_payload(
+            provider=cfg.llm_provider,
+            model_name=cfg.llm_model,
+            reasoning_effort=cfg.llm_reasoning_effort,
+            request_kwargs=reasoning_probe,
+        ),
+    )
+    _log.info(
+        "LLM prompt payload",
+        extra=build_llm_prompt_debug_payload(
+            channel="retrieval",
+            model=cfg.llm_model,
+            system_prompt=sys_message,
+            user_prompt=user_message,
+        ),
     )
 
     return await LLMService.extract_structured(

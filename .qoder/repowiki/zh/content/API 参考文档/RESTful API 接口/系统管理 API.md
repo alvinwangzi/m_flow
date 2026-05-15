@@ -39,25 +39,25 @@
 
 ```mermaid
 graph TB
-    subgraph apiStructure["系统管理 API 结构"]
-        A[API 根目录] --> B[m_flow/api/v1/]
-        B --> C[maintenance/<br/>维护管理]
-        B --> D[manual/<br/>手动干预]
-        B --> E[config/<br/>配置管理]
-        B --> F[settings/<br/>设置调整]
-        B --> G[prune/<br/>数据清理]
-        C --> C1[routers/<br/>路由工厂]
-        C --> C2[episode_quality.py<br/>质量检查]
-        C --> C3[episode_size.py<br/>大小检查]
-        C --> C4[orphans.py<br/>孤儿数据处理]
-        D --> D1[routers/<br/>路由工厂]
-        D --> D2[manual.py<br/>手动处理]
-        D --> D3[models.py<br/>数据模型]
-        E --> E1[config.py<br/>配置管理器]
-        F --> F1[routers/<br/>路由工厂]
-        G --> G1[routers/<br/>路由工厂]
-        G --> G2[prune.py<br/>清理实现]
-    end
+subgraph "系统管理 API 结构"
+A[API 根目录] --> B[m_flow/api/v1/]
+B --> C[maintenance/<br/>维护管理>
+B --> D[manual/<br/>手动干预>
+B --> E[config/<br/>配置管理>
+B --> F[settings/<br/>设置调整>
+B --> G[prune/<br/>数据清理>
+C --> C1[routers/<br/>路由工厂]
+C --> C2[episode_quality.py<br/>质量检查]
+C --> C3[episode_size.py<br/>大小检查]
+C --> C4[orphans.py<br/>孤儿数据处理]
+D --> D1[routers/<br/>路由工厂]
+D --> D2[manual.py<br/>手动处理]
+D --> D3[models.py<br/>数据模型]
+E --> E1[config.py<br/>配置管理器]
+F --> F1[routers/<br/>路由工厂]
+G --> G1[routers/<br/>路由工厂]
+G --> G2[prune.py<br/>清理实现]
+end
 ```
 
 **图表来源**
@@ -106,35 +106,35 @@ graph TB
 
 ```mermaid
 graph TB
-    subgraph clientLayer["客户端层"]
-        Client[管理客户端]
-        Frontend[前端界面]
-    end
-    subgraph apiLayer["API 层"]
-        Auth[认证中间件]
-        Router[路由分发器]
-        Handler[处理器]
-    end
-    subgraph businessLayer["业务逻辑层"]
-        Service[服务层]
-        Validator[验证器]
-        Logger[日志记录]
-    end
-    subgraph dataAccessLayer["数据访问层"]
-        DB[(数据库)]
-        Cache[(缓存)]
-        Storage[(文件存储)]
-    end
-    Client --> Auth
-    Frontend --> Auth
-    Auth --> Router
-    Router --> Handler
-    Handler --> Service
-    Service --> Validator
-    Service --> Logger
-    Service --> DB
-    Service --> Cache
-    Service --> Storage
+subgraph "客户端层"
+Client[管理客户端]
+Frontend[前端界面]
+end
+subgraph "API 层"
+Auth[认证中间件]
+Router[路由分发器]
+Handler[处理器]
+end
+subgraph "业务逻辑层"
+Service[服务层]
+Validator[验证器]
+Logger[日志记录]
+end
+subgraph "数据访问层"
+DB[(数据库)]
+Cache[(缓存)]
+Storage[(文件存储)]
+end
+Client --> Auth
+Frontend --> Auth
+Auth --> Router
+Router --> Handler
+Handler --> Service
+Service --> Validator
+Service --> Logger
+Service --> DB
+Service --> Cache
+Service --> Storage
 ```
 
 **图表来源**
@@ -395,32 +395,32 @@ UpdateTime --> Success[返回成功响应]
 
 ```mermaid
 graph TB
-    subgraph authDeps["认证依赖"]
-        Auth[认证模块] --> Maintenance[维护管理]
-        Auth --> Manual[手动干预]
-        Auth --> Settings[设置调整]
-        Auth --> Prune[数据清理]
-    end
-    subgraph configDeps["配置依赖"]
-        Config[配置模块] --> Maintenance
-        Config --> Settings
-        Config --> Prune
-    end
-    subgraph dbDeps["数据库依赖"]
-        DB[((数据库层)] --> Maintenance
-        DB --> Manual
-        DB --> Prune
-    end
-    subgraph cacheDeps["缓存依赖"]
-        Cache[((缓存层)] --> Config
-        Cache --> Prune
-    end
-    subgraph externalDeps["外部服务依赖"]
-        LLM[LLM 服务] --> Maintenance
-        LLM --> Manual
-        VectorDB[向量数据库] --> Maintenance
-        GraphDB[图数据库] --> Maintenance
-    end
+subgraph "认证依赖"
+Auth[认证模块] --> Maintenance[维护管理]
+Auth --> Manual[手动干预]
+Auth --> Settings[设置调整]
+Auth --> Prune[数据清理]
+end
+subgraph "配置依赖"
+Config[配置模块] --> Maintenance
+Config --> Settings
+Config --> Prune
+end
+subgraph "数据库依赖"
+DB[(数据库层)] --> Maintenance
+DB --> Manual
+DB --> Prune
+end
+subgraph "缓存依赖"
+Cache[(缓存层)] --> Config
+Cache --> Prune
+end
+subgraph "外部服务依赖"
+LLM[LLM 服务] --> Maintenance
+LLM --> Manual
+VectorDB[向量数据库] --> Maintenance
+GraphDB[图数据库] --> Maintenance
+end
 ```
 
 **图表来源**

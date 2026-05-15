@@ -25,9 +25,11 @@ from tenacity import (
 )
 
 from m_flow.llm.exceptions import ContentPolicyFilterError
+from m_flow.llm import get_llm_config
 from m_flow.llm.backends.litellm_instructor.llm.llm_interface import (
     LLMBackend,
 )
+from m_flow.llm.reasoning import apply_reasoning_options
 from m_flow.shared.logging_utils import get_logger
 from m_flow.shared.rate_limiting import llm_rate_limiter_context_manager
 
@@ -104,17 +106,26 @@ class GenericAPIAdapter(LLMBackend):
             key = self.api_key
             base = self.endpoint
 
-        return await self.aclient.chat.completions.create(
-            model=model,
-            messages=[
+        cfg = get_llm_config()
+        call_kwargs = {
+            "model": model,
+            "messages": [
                 {"role": "user", "content": text_input},
                 {"role": "system", "content": system_prompt},
             ],
-            max_retries=2,
-            api_key=key,
-            api_base=base,
-            response_model=response_model,
+            "max_retries": 2,
+            "api_key": key,
+            "api_base": base,
+            "response_model": response_model,
+        }
+        apply_reasoning_options(
+            request_kwargs=call_kwargs,
+            provider=cfg.llm_provider,
+            model_name=model,
+            reasoning_effort=cfg.llm_reasoning_effort,
         )
+
+        return await self.aclient.chat.completions.create(**call_kwargs)
 
     @retry(
         stop=stop_after_delay(120),

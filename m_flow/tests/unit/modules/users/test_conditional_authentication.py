@@ -97,6 +97,44 @@ class TestEnvVars:
             assert REQUIRE_AUTHENTICATION
 
 
+class TestEnvVarInteractions:
+    """Environment variable interaction tests."""
+
+    def test_require_auth_false_is_not_overridden_by_access_control(self):
+        """REQUIRE_AUTHENTICATION=false should keep auth optional even when ACL is enabled."""
+        mod_name = "m_flow.auth.methods.get_authenticated_user"
+        module = sys.modules.get(mod_name)
+        if module is None:
+            module = importlib.import_module(mod_name)
+
+        original_require = os.environ.get("REQUIRE_AUTHENTICATION")
+        original_acl = os.environ.get("ENABLE_BACKEND_ACCESS_CONTROL")
+
+        try:
+            with patch.dict(
+                os.environ,
+                {
+                    "REQUIRE_AUTHENTICATION": "false",
+                    "ENABLE_BACKEND_ACCESS_CONTROL": "true",
+                },
+                clear=False,
+            ):
+                reloaded = importlib.reload(module)
+                assert reloaded.REQUIRE_AUTHENTICATION is False
+        finally:
+            if original_require is None:
+                os.environ.pop("REQUIRE_AUTHENTICATION", None)
+            else:
+                os.environ["REQUIRE_AUTHENTICATION"] = original_require
+
+            if original_acl is None:
+                os.environ.pop("ENABLE_BACKEND_ACCESS_CONTROL", None)
+            else:
+                os.environ["ENABLE_BACKEND_ACCESS_CONTROL"] = original_acl
+
+            importlib.reload(module)
+
+
 class TestEdgeCases:
     """边缘情况测试"""
 

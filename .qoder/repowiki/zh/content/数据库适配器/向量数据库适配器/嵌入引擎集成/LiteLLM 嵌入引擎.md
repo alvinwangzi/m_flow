@@ -15,20 +15,30 @@
 - [test_embedding_config_custom_provider.py](file://m_flow/tests/unit/infrastructure/vector/embeddings/test_embedding_config_custom_provider.py)
 </cite>
 
+## 更新摘要
+**所做更改**
+- 更新了批量处理能力章节，详细说明了可配置的批量大小和智能分块功能
+- 新增了批量处理性能优化和吞吐量提升的相关内容
+- 更新了配置指南，强调批量大小对性能的影响
+- 增强了性能监控和成本控制的最佳实践部分
+
 ## 目录
 1. [简介](#简介)
 2. [项目结构](#项目结构)
 3. [核心组件](#核心组件)
 4. [架构总览](#架构总览)
 5. [详细组件分析](#详细组件分析)
-6. [依赖关系分析](#依赖关系分析)
-7. [性能考量](#性能考量)
-8. [故障排查指南](#故障排查指南)
-9. [结论](#结论)
-10. [附录](#附录)
+6. [批量处理能力增强](#批量处理能力增强)
+7. [依赖关系分析](#依赖关系分析)
+8. [性能考量](#性能考量)
+9. [故障排查指南](#故障排查指南)
+10. [结论](#结论)
+11. [附录](#附录)
 
 ## 简介
 本文件面向 LiteLLM 嵌入引擎的技术文档，系统性阐述其多提供商路由能力与统一嵌入接口设计。该引擎支持 OpenAI、Azure、以及通过 LiteLLM 兼容层接入的其他提供商（如自定义兼容端点），并提供统一的异步嵌入接口、上下文窗口溢出处理、批量分片与池化、速率限制、重试机制与错误处理。同时给出配置指南、使用示例与最佳实践，帮助在不同提供商之间进行智能路由与成本优化。
+
+**更新** 本版本重点增强了批量处理能力，包括可配置的批量大小和智能分块功能，显著提高了大数集嵌入生成的资源利用率和吞吐量。
 
 ## 项目结构
 LiteLLM 嵌入引擎位于向量适配层的嵌入子模块中，采用协议驱动的适配器模式，结合工厂方法与缓存机制，按配置动态构建具体引擎实例。前端提供配置向导与设置页面，后端提供配置持久化与运行时更新能力。
@@ -248,6 +258,53 @@ UpdateActive --> Reload["后续 get_embedding_engine 使用新配置"]
 **章节来源**
 - [LiteLLMEmbeddingEngine.py:151-177](file://m_flow/adapters/vector/embeddings/LiteLLMEmbeddingEngine.py#L151-L177)
 
+## 批量处理能力增强
+
+### 可配置批量大小
+LiteLLM 嵌入引擎引入了可配置的批量大小功能，通过 `batch_size` 参数控制每次嵌入调用处理的文本数量。该功能显著提升了大数集嵌入生成的资源利用率和吞吐量。
+
+- **默认批量大小**：引擎初始化时设置默认批量大小为 100，可根据具体需求进行调整
+- **动态计算**：在 `embed_text` 方法中，批量大小通过 `max(1, int(self.batch_size or len(text) or 1))` 动态计算，确保至少处理一个批次
+- **分批处理**：使用 `for start in range(0, len(text), batch_size)` 实现智能分批，支持任意规模的文本数组
+
+### 智能分块功能
+引擎提供了智能分块功能，能够根据上下文窗口限制自动处理超大文本：
+
+- **批量级分块**：当整个批次超出上下文限制时，自动将批次拆分为两半，递归处理后合并结果
+- **单文本分块**：对于单个超长文本，采用三分之一重叠切分策略，分别嵌入后进行向量池化
+- **性能优化**：使用 `asyncio.gather` 并行处理分块，提升整体处理效率
+
+### 吞吐量提升机制
+批量处理能力的增强带来了显著的吞吐量提升：
+
+- **减少 API 调用次数**：通过批量处理减少网络往返和 API 调用开销
+- **优化资源利用**：更大的批次大小充分利用 GPU/CPU 资源，提高计算效率
+- **降低延迟**：减少 API 调用频率，降低整体处理延迟
+- **成本优化**：在某些提供商上，批量处理可以减少请求成本
+
+```mermaid
+flowchart TD
+Start(["开始批量处理"]) --> CalcBatch["计算批量大小<br/>max(1, int(self.batch_size or len(text) or 1))"]
+CalcBatch --> LoopBatches["遍历批次<br/>for start in range(0, len(text), batch_size)"]
+LoopBatches --> CheckSize{"批次大小 > 0?"}
+CheckSize --> |是| EnterLimiter["进入嵌入限流上下文"]
+EnterLimiter --> CallLiteLLM["调用 litellm.aembedding()<br/>批量处理当前批次"]
+CallLiteLLM --> Collect["收集向量结果"]
+Collect --> NextBatch{"还有批次?"}
+NextBatch --> |是| LoopBatches
+NextBatch --> |否| ReturnVecs["返回完整向量列表"]
+CheckSize --> |否| HandleOverflow["处理上下文溢出"]
+HandleOverflow --> SplitBatch["递归拆分批次"]
+SplitBatch --> ReturnVecs
+```
+
+**图表来源**
+- [LiteLLMEmbeddingEngine.py:95-109](file://m_flow/adapters/vector/embeddings/LiteLLMEmbeddingEngine.py#L95-L109)
+
+**章节来源**
+- [LiteLLMEmbeddingEngine.py:47-66](file://m_flow/adapters/vector/embeddings/LiteLLMEmbeddingEngine.py#L47-L66)
+- [LiteLLMEmbeddingEngine.py:85-109](file://m_flow/adapters/vector/embeddings/LiteLLMEmbeddingEngine.py#L85-L109)
+
 ## 依赖关系分析
 - 松耦合设计：通过协议与工厂解耦具体提供商实现，新增提供商只需遵循协议即可无缝接入。
 - 外部依赖：LiteLLM（异步嵌入）、Tenacity（重试）、NumPy（向量池化）、aiohttp（HTTP 客户端，Ollama 场景）。
@@ -275,25 +332,34 @@ Factory --> Ollama["OllamaEmbeddingEngine"]
 - [get_embedding_engine.py:84-99](file://m_flow/adapters/vector/embeddings/get_embedding_engine.py#L84-L99)
 
 ## 性能考量
-- 批次大小：建议根据提供商上下文限制与网络状况调整批次大小，默认 36；对大模型可适当减小以避免溢出。
-- 限流策略：在高并发场景启用嵌入限流，避免触发第三方速率限制或被降级。
-- 重试退避：指数退避+抖动可有效缓解瞬时抖动，建议结合熔断策略使用。
-- 向量池化：对超长文本进行重叠池化可提升召回质量，但会增加计算与内存消耗。
-- 本地化替代：在低延迟与隐私要求高的场景，可考虑 FastEmbed 或 Ollama 本地部署。
+- **批次大小优化**：建议根据提供商上下文限制与网络状况调整批次大小，默认 36；对大模型可适当减小以避免溢出。
+- **智能分块策略**：批量处理能力增强了智能分块功能，能够自动处理超大文本数组，提升资源利用率。
+- **吞吐量提升**：批量处理显著减少了 API 调用次数，提高了整体吞吐量和处理效率。
+- **限流策略**：在高并发场景启用嵌入限流，避免触发第三方速率限制或被降级。
+- **重试退避**：指数退避+抖动可有效缓解瞬时抖动，建议结合熔断策略使用。
+- **向量池化**：对超长文本进行重叠池化可提升召回质量，但会增加计算与内存消耗。
+- **本地化替代**：在低延迟与隐私要求高的场景，可考虑 FastEmbed 或 Ollama 本地部署。
 
-[本节为通用指导，不直接分析具体文件]
+**更新** 批量处理能力的增强使得引擎能够更高效地处理大规模嵌入任务，特别是在以下场景中表现突出：
+- 大规模文档集合的批量嵌入
+- 高并发的嵌入服务请求
+- 需要优化成本的生产环境
+- 对延迟敏感的应用场景
 
 ## 故障排查指南
-- 常见错误分类：
+- **常见错误分类**：
   - 认证错误：检查 API 密钥与提供商是否匹配。
   - 参数错误：检查模型、维度、端点与版本号。
   - 上下文超限：减小批次或启用自动分片；必要时调整最大完成令牌。
-- 排查步骤：
+  - 批量处理错误：检查批量大小配置和内存限制。
+- **排查步骤**：
   - 开启模拟模式验证流程完整性。
   - 查看日志输出定位异常阶段（网络、解析、重试）。
   - 在前端设置页核对配置项与掩码密钥处理。
-- 测试参考：
+  - 监控批量处理的内存使用情况。
+- **测试参考**：
   - 自定义提供商配置项覆盖测试，验证维度与端点生效。
+  - 批量大小配置测试，验证不同批次大小的性能表现。
 
 **章节来源**
 - [LiteLLMEmbeddingEngine.py:114-116](file://m_flow/adapters/vector/embeddings/LiteLLMEmbeddingEngine.py#L114-L116)
@@ -303,12 +369,12 @@ Factory --> Ollama["OllamaEmbeddingEngine"]
 ## 结论
 LiteLLM 嵌入引擎通过协议化接口与工厂缓存机制，实现了对多家提供商的统一抽象与灵活路由。其内置的上下文溢出处理、批量分片与池化、速率限制与重试策略，显著提升了稳定性与吞吐表现。配合完善的配置系统与前端可视化界面，用户可在 OpenAI、Azure、Ollama、FastEmbed 等多种方案间快速切换与优化，满足不同场景的成本与性能需求。
 
-[本节为总结性内容，不直接分析具体文件]
+**更新** 本次批量处理能力增强进一步提升了引擎的性能表现，通过可配置的批量大小和智能分块功能，显著提高了大数集嵌入生成的资源利用率和吞吐量，为生产环境中的大规模嵌入任务提供了更好的解决方案。
 
 ## 附录
 
 ### 配置指南（后端）
-- 关键配置项：
+- **关键配置项**：
   - provider：提供商标识（openai、azure、ollama、fastembed、custom）。
   - model：模型标识符（如 openai/text-embedding-3-large）。
   - dimensions：输出向量维度（如 1536、3072）。
@@ -316,26 +382,29 @@ LiteLLM 嵌入引擎通过协议化接口与工厂缓存机制，实现了对多
   - api_key：提供商 API 密钥（支持掩码占位）。
   - api_version：API 版本（Azure 必填）。
   - max_completion_tokens：单次请求最大令牌数。
-  - batch_size：批次大小（未指定时默认 36）。
+  - batch_size：批次大小（未指定时默认 100，原默认值为 36）。
   - huggingface_tokenizer：HF 分词器名称（用于预处理）。
-- 默认值与行为：
-  - 未指定批次大小时使用默认值。
+- **默认值与行为**：
+  - 未指定批次大小时使用默认值 100（已更新）。
   - 自定义提供商可覆盖端点与模型，以兼容第三方兼容层。
+  - 批量处理功能自动启用，无需额外配置。
 
 **章节来源**
 - [config.py:16-68](file://m_flow/adapters/vector/embeddings/config.py#L16-L68)
 - [get_embedding_engine.py:87-88](file://m_flow/adapters/vector/embeddings/get_embedding_engine.py#L87-L88)
+- [LiteLLMEmbeddingEngine.py:56](file://m_flow/adapters/vector/embeddings/LiteLLMEmbeddingEngine.py#L56)
 
 ### 配置指南（前端）
-- 支持的提供商与默认参数：
+- **支持的提供商与默认参数**：
   - OpenAI：默认模型 text-embedding-3-large，维度 3072，需 API Key。
   - Azure OpenAI：默认模型 text-embedding-3-large，维度 3072，需 API Key 与端点。
   - Ollama（本地）：默认模型 nomic-embed-text，维度 768，需端点。
   - FastEmbed（本地）：默认模型 BAAI/bge-small-en-v1.5，维度 384，无需密钥。
-- 设置页功能：
+- **设置页功能**：
   - 表单校验与变更检测。
   - 保存时可选择是否持久化至 .env。
   - 掩码密钥保护，避免明文泄露。
+  - 批量大小配置选项（50-300，默认 100）。
 
 **章节来源**
 - [EmbeddingConfigStep.tsx:45-83](file://m_flow-frontend/src/components/setup/ConfigWizard/steps/EmbeddingConfigStep.tsx#L45-L83)
@@ -343,15 +412,18 @@ LiteLLM 嵌入引擎通过协议化接口与工厂缓存机制，实现了对多
 - [save_embedding_config.py:57-75](file://m_flow/config/settings/save_embedding_config.py#L57-L75)
 
 ### 使用示例（概念性）
-- 示例目标：演示在不同提供商间进行智能路由与成本优化。
-- 步骤概要：
+- **示例目标**：演示在不同提供商间进行智能路由与成本优化。
+- **步骤概要**：
   - 在前端设置页选择提供商与模型，填写必要参数（如 Azure 端点与密钥）。
+  - 配置合适的批量大小以优化性能（默认 100，可根据需求调整）。
   - 保存配置并持久化至 .env。
   - 通过工厂方法获取嵌入引擎实例，调用 embed_text 执行批量嵌入。
   - 根据返回向量进行向量检索或知识图谱构建。
-- 成本优化建议：
+- **成本优化建议**：
   - 优先选择与应用同区域的提供商以降低延迟与费用。
   - 对高频查询启用嵌入限流，避免触发第三方配额。
-  - 使用较小批次与重试策略平衡吞吐与稳定性。
+  - 使用适当的批量大小平衡吞吐与稳定性。
+  - 利用智能分块功能处理超大文本数组。
+  - 监控内存使用情况，避免批量处理导致的内存溢出。
 
-[本节为概念性示例，不直接分析具体文件]
+**更新** 批量处理能力的增强使得该示例更加实用，特别是在处理大规模文本集合时能够显著提升性能和降低成本。

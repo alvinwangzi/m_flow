@@ -26,9 +26,11 @@ from tenacity import (
 )
 
 from m_flow.llm.exceptions import ContentPolicyFilterError
+from m_flow.llm import get_llm_config
 from m_flow.llm.backends.litellm_instructor.llm.llm_interface import (
     LLMBackend,
 )
+from m_flow.llm.reasoning import apply_reasoning_options
 from m_flow.shared.files.utils.open_data_file import open_data_file
 from m_flow.shared.logging_utils import get_logger
 from m_flow.shared.observability.get_observe import get_observe
@@ -262,16 +264,24 @@ class OpenAIAdapter(LLMBackend):
         """
         try:
             async with llm_rate_limiter_context_manager():
-                return await self._async_client.chat.completions.create(
-                    model=self._model,
-                    messages=self._build_messages(text_input, system_prompt),
-                    api_key=self._api_key,
-                    api_base=self._endpoint,
-                    api_version=self._api_version,
-                    response_model=response_model,
-                    max_retries=self.MAX_RETRIES,
+                call_kwargs = {
+                    "model": self._model,
+                    "messages": self._build_messages(text_input, system_prompt),
+                    "api_key": self._api_key,
+                    "api_base": self._endpoint,
+                    "api_version": self._api_version,
+                    "response_model": response_model,
+                    "max_retries": self.MAX_RETRIES,
                     **kwargs,
+                }
+                cfg = get_llm_config()
+                apply_reasoning_options(
+                    request_kwargs=call_kwargs,
+                    provider=cfg.llm_provider,
+                    model_name=self._model,
+                    reasoning_effort=cfg.llm_reasoning_effort,
                 )
+                return await self._async_client.chat.completions.create(**call_kwargs)
         except (
             ContentFilterFinishReasonError,
             ContentPolicyViolationError,
@@ -293,14 +303,22 @@ class OpenAIAdapter(LLMBackend):
 
         try:
             async with llm_rate_limiter_context_manager():
-                return await self._async_client.chat.completions.create(
-                    model=self._fallback_model,
-                    messages=self._build_messages(text_input, system_prompt),
-                    api_key=self._fallback_key,
-                    response_model=response_model,
-                    max_retries=self.MAX_RETRIES,
+                call_kwargs = {
+                    "model": self._fallback_model,
+                    "messages": self._build_messages(text_input, system_prompt),
+                    "api_key": self._fallback_key,
+                    "response_model": response_model,
+                    "max_retries": self.MAX_RETRIES,
                     **kwargs,
+                }
+                cfg = get_llm_config()
+                apply_reasoning_options(
+                    request_kwargs=call_kwargs,
+                    provider=cfg.llm_provider,
+                    model_name=self._fallback_model,
+                    reasoning_effort=cfg.llm_reasoning_effort,
                 )
+                return await self._async_client.chat.completions.create(**call_kwargs)
         except (
             ContentFilterFinishReasonError,
             ContentPolicyViolationError,
@@ -345,16 +363,24 @@ class OpenAIAdapter(LLMBackend):
         Returns:
             Parsed response as model instance
         """
-        return self._sync_client.chat.completions.create(
-            model=self._model,
-            messages=self._build_messages(text_input, system_prompt),
-            api_key=self._api_key,
-            api_base=self._endpoint,
-            api_version=self._api_version,
-            response_model=response_model,
-            max_retries=self.MAX_RETRIES,
+        call_kwargs = {
+            "model": self._model,
+            "messages": self._build_messages(text_input, system_prompt),
+            "api_key": self._api_key,
+            "api_base": self._endpoint,
+            "api_version": self._api_version,
+            "response_model": response_model,
+            "max_retries": self.MAX_RETRIES,
             **kwargs,
+        }
+        cfg = get_llm_config()
+        apply_reasoning_options(
+            request_kwargs=call_kwargs,
+            provider=cfg.llm_provider,
+            model_name=self._model,
+            reasoning_effort=cfg.llm_reasoning_effort,
         )
+        return self._sync_client.chat.completions.create(**call_kwargs)
 
     # =========================================================================
     # Media Processing

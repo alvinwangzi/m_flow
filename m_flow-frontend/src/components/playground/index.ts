@@ -1,5 +1,6 @@
 export { PlaygroundPage } from "./PlaygroundPage";
 export { MemoryIndicator } from "./MemoryIndicator";
+export { PlaygroundMarkdownMessage } from "./PlaygroundMarkdownMessage";
 export { DatasetLinker } from "./DatasetLinker";
 export { PlaygroundSettings } from "./PlaygroundSettings";
 export { VisionSettings } from "./VisionSettings";

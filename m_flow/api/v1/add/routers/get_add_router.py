@@ -118,9 +118,25 @@ def get_add_router() -> APIRouter:
                 incremental_loading=incremental_loading,
             )
             if isinstance(result, RunFailed):
-                return JSONResponse(status_code=420, content=result.model_dump(mode="json"))
+                _log.error(f"[add] Pipeline failed: {result.payload}")
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "error": "Pipeline execution failed",
+                        "details": result.payload,
+                        "workflow_run_id": str(result.workflow_run_id),
+                    },
+                )
             return result.model_dump()
         except Exception as err:
-            return JSONResponse(status_code=409, content={"error": str(err)})
+            _log.exception(f"[add] Unexpected error: {err}")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "Data ingestion failed",
+                    "details": str(err),
+                    "type": type(err).__name__,
+                },
+            )
 
     return router

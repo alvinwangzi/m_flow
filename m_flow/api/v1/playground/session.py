@@ -44,6 +44,7 @@ class PlaygroundSession:
     session_id: str
     face_recognition_url: str
     user_id: str = ""
+    selected_dataset_id: str | None = None
     created_at: float = field(default_factory=time.time)
 
     messages: list[dict] = field(default_factory=list)
@@ -65,6 +66,7 @@ class PlaygroundSession:
     llm_model_override: str | None = None
     llm_endpoint_override: str | None = None
     llm_api_key_override: str | None = None
+    custom_system_prompt: str | None = None
 
     # Tracks messages in current buffer window (indices into self.messages)
     _buffer_start_idx: int = 0

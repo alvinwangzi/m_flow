@@ -2,18 +2,21 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { config, STORAGE_KEYS } from "@/lib/config";
+import { useUIStore } from "@/lib/store";
 import { Video, Send, User, Loader2, Wifi, WifiOff, Camera, Settings2, Sliders, Play, Square, Mic, MicOff } from "lucide-react";
 import { MemoryIndicator } from "./MemoryIndicator";
 import { DatasetLinker } from "./DatasetLinker";
 import { PlaygroundSettings } from "./PlaygroundSettings";
 import { VisionSettings } from "./VisionSettings";
 import { CorefDebugPanel, type CorefDebugData } from "./CorefDebugPanel";
+import { PlaygroundMarkdownMessage } from "./PlaygroundMarkdownMessage";
 import type { Message, PersonInFrame, MemoryStatus, NewFaceLink, CorefResolution } from "./types";
 
 const API = config.API_BASE_URL;
 
 export function PlaygroundPage() {
   const token = typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN) : null;
+  const datasetContext = useUIStore((state) => state.datasetContext);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [faceRecStatus, setFaceRecStatus] = useState<string>("offline");
   const [faceRecUrl] = useState("http://localhost:5001");
@@ -53,6 +56,21 @@ export function PlaygroundPage() {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   }), [token]);
 
+  const syncSelectedDataset = useCallback(async (sid: string, datasetId: string | null) => {
+    try {
+      await fetch(`${API}/api/v1/playground/set-dataset`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({
+          session_id: sid,
+          dataset_id: datasetId,
+        }),
+      });
+    } catch {
+      // Non-fatal: chat can still proceed without fallback dataset sync.
+    }
+  }, [headers]);
+
   // Create session on mount
   useEffect(() => {
     (async () => {
@@ -68,12 +86,18 @@ export function PlaygroundPage() {
           setFaceRecStatus(data.face_recognition_status);
           if (data.config?.video_feed_url) setVideoFeedUrl(data.config.video_feed_url);
           if (data.config) setPgConfig(prev => ({ ...prev, ...data.config }));
+          await syncSelectedDataset(data.session_id, datasetContext.datasetId);
         }
       } catch {
         setFaceRecStatus("offline");
       }
     })();
-  }, [faceRecUrl, headers]);
+  }, [faceRecUrl, headers, syncSelectedDataset]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    void syncSelectedDataset(sessionId, datasetContext.datasetId);
+  }, [sessionId, datasetContext.datasetId, syncSelectedDataset]);
 
   // Poll persons + detect face recognition service health
   const failCountRef = useRef(0);
@@ -556,6 +580,12 @@ export function PlaygroundPage() {
             <span>Settings</span>
           </button>
         </div>
+        {datasetContext.datasetId && datasetContext.datasetName && (
+          <div className="px-4 py-2 border-b border-[#14161b] text-[11px] text-[#7f8da8]">
+            Using selected dataset as retrieval fallback:{" "}
+            <span className="text-[#d6e2ff]">{datasetContext.datasetName}</span>
+          </div>
+        )}
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {messages.length === 0 && (
@@ -582,7 +612,11 @@ export function PlaygroundPage() {
                   {msg.speakerName && (
                     <div className="text-[10px] text-[#6b8afd] mb-1">{msg.speakerName}</div>
                   )}
-                  <div className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+                  {msg.role === "assistant" ? (
+                    <PlaygroundMarkdownMessage content={msg.content} />
+                  ) : (
+                    <div className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+                  )}
                   {msg.corefResolutions && msg.corefResolutions.length > 0 && (
                     <div className="mt-1.5 pt-1.5 border-t border-white/5">
                       <div className="text-[10px] text-[#808080]">
@@ -630,6 +664,8 @@ export function PlaygroundPage() {
           }}
           sessionId={sessionId}
           hasLinkedDatasets={hasAnyLinkedDataset || persons.some(p => !!p.dataset_ids?.length)}
+          hasFallbackDataset={!!datasetContext.datasetId}
+          fallbackDatasetName={datasetContext.datasetName}
         />
 
         {/* Speaker selector + Input */}

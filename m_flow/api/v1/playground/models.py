@@ -87,3 +87,13 @@ class SetLlmRequest(BaseModel):
     model: str = ""
     endpoint: str = ""
     api_key: str = ""
+
+
+class SetDatasetRequest(BaseModel):
+    session_id: str
+    dataset_id: Optional[str] = None
+
+
+class SetPromptRequest(BaseModel):
+    session_id: str
+    system_prompt: str = ""

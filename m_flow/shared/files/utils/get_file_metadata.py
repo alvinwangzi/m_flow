@@ -44,6 +44,14 @@ def _get_filename_stem(handle: BinaryIO) -> Optional[str]:
     return None
 
 
+def _normalise_filename_hint(name: Optional[str]) -> Optional[str]:
+    """Return a safe basename from an explicit caller-provided filename."""
+    if not name:
+        return None
+    filename = PurePosixPath(name.replace("\\", "/")).name
+    return filename or None
+
+
 def _get_file_path(handle: BinaryIO) -> Optional[str]:
     """Extract the file path from a file handle."""
     return getattr(handle, "name", None) or getattr(handle, "full_name", None)
@@ -102,9 +110,10 @@ async def get_file_metadata(
     """
     content_hash = await _compute_content_hash(file)
     type_info = guess_file_type(file, name)
+    display_name = _normalise_filename_hint(name) or _get_filename_stem(file)
 
     return FileMetadata(
-        name=_get_filename_stem(file),
+        name=display_name,
         file_path=_get_file_path(file),
         mime_type=type_info.mime,
         extension=type_info.extension,

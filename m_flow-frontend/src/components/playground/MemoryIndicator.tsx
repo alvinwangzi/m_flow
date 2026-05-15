@@ -18,9 +18,19 @@ interface MemoryIndicatorProps {
   onLinkDataset?: () => void;
   sessionId: string | null;
   hasLinkedDatasets: boolean;
+  hasFallbackDataset?: boolean;
+  fallbackDatasetName?: string | null;
 }
 
-export function MemoryIndicator({ memoryStatus, onManualFlush, onLinkDataset, sessionId, hasLinkedDatasets }: MemoryIndicatorProps) {
+export function MemoryIndicator({
+  memoryStatus,
+  onManualFlush,
+  onLinkDataset,
+  sessionId,
+  hasLinkedDatasets,
+  hasFallbackDataset = false,
+  fallbackDatasetName = null,
+}: MemoryIndicatorProps) {
   const [flushing, setFlushing] = useState(false);
   const [notifications, setNotifications] = useState<FlushNotification[]>([]);
   const notifIdRef = useRef(0);
@@ -40,14 +50,14 @@ export function MemoryIndicator({ memoryStatus, onManualFlush, onLinkDataset, se
   useEffect(() => {
     if (notifications.length === 0) return;
     const timer = setTimeout(() => {
-      setNotifications(prev => prev.slice(1));
+      setNotifications((prev) => prev.slice(1));
     }, 8000);
     return () => clearTimeout(timer);
   }, [notifications]);
 
   function addNotification(type: FlushNotification["type"], message: string, actionLabel?: string) {
     const id = ++notifIdRef.current;
-    setNotifications(prev => [...prev, { id, type, message, actionLabel, timestamp: Date.now() }]);
+    setNotifications((prev) => [...prev, { id, type, message, actionLabel, timestamp: Date.now() }]);
   }
 
   async function handleManualFlush() {
@@ -59,7 +69,7 @@ export function MemoryIndicator({ memoryStatus, onManualFlush, onLinkDataset, se
     } catch (e: any) {
       const msg = e?.message || "";
       if (msg === "no_datasets") {
-        addNotification("action", "No linked datasets — link a person to save memories", "Link Dataset");
+        addNotification("action", "No linked datasets - link a person to save memories", "Link Dataset");
       } else {
         addNotification("error", "Memory save failed, please retry later");
       }
@@ -75,15 +85,21 @@ export function MemoryIndicator({ memoryStatus, onManualFlush, onLinkDataset, se
   const activePct = Math.max(tokenPct, turnPct);
   const isNearThreshold = activePct >= 75;
   const hasBuffer = memoryStatus.buffer_tokens > 0 || memoryStatus.buffer_turns > 0;
+  const hasSearchSource = hasLinkedDatasets || hasFallbackDataset;
 
   return (
     <div className="px-4 py-2 border-t border-[#1e1e1e]">
-      {/* No-dataset hint when buffer is building but nothing is linked */}
-      {hasBuffer && !hasLinkedDatasets && notifications.every(n => n.type !== "action") && (
+      {hasFallbackDataset && fallbackDatasetName && (
+        <div className="mb-1.5 px-3 py-1.5 rounded-lg text-xs bg-[#12141a] text-[#8aa0c8] border border-[#1a2030]">
+          Retrieval fallback dataset: <span className="text-[#d6e2ff]">{fallbackDatasetName}</span>
+        </div>
+      )}
+
+      {hasBuffer && !hasSearchSource && notifications.every((n) => n.type !== "action") && (
         <div className="flex items-center justify-between mb-1.5 px-3 py-1.5 rounded-lg text-xs bg-[#1a1710] text-[#a09070] border border-[#2a2518]">
           <div className="flex items-center gap-2">
             <AlertCircle size={12} className="text-[#807060]" />
-            <span>Memory buffer growing but no dataset linked — conversations won't be saved</span>
+            <span>Memory buffer growing but no dataset linked - conversations won't be saved</span>
           </div>
           {onLinkDataset && (
             <button
@@ -97,8 +113,7 @@ export function MemoryIndicator({ memoryStatus, onManualFlush, onLinkDataset, se
         </div>
       )}
 
-      {/* Notifications */}
-      {notifications.map(n => (
+      {notifications.map((n) => (
         <div
           key={n.id}
           className={`flex items-center gap-2 mb-1.5 px-3 py-1.5 rounded-lg text-xs ${
@@ -127,7 +142,6 @@ export function MemoryIndicator({ memoryStatus, onManualFlush, onLinkDataset, se
         </div>
       ))}
 
-      {/* Progress bar + stats */}
       <div className="flex items-center gap-3">
         <Database size={12} className="text-[#808080] flex-shrink-0" />
 

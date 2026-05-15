@@ -14,6 +14,12 @@
 - [test_kuzu_query_by_attributes.py](file://m_flow/tests/unit/infrastructure/graph/test_kuzu_query_by_attributes.py)
 </cite>
 
+## 更新摘要
+**变更内容**
+- 更新了属性过滤功能的实现细节，现在能够区分规范属性（id、name、type、created_at、updated_at）和存储在 JSON 格式中的自定义属性
+- 新增了 `query_by_attributes` 方法的详细说明，支持更灵活的图节点查询
+- 增强了属性过滤的查询优化策略
+
 ## 目录
 1. [简介](#简介)
 2. [项目结构](#项目结构)
@@ -130,7 +136,7 @@ Remote-->>App : 处理后的结果
   - 可选 Redis 分布式锁，用于跨进程共享同一数据库实例时的互斥。
 - 节点与边操作
   - 单条/批量插入/合并节点，自动去重与冲突回退到逐条写入。
-  - 边的批量合并写入，采用“端点分区”策略避免 UNWIND+MERGE 冲突。
+  - 边的批量合并写入，采用"端点分区"策略避免 UNWIND+MERGE 冲突。
   - 属性更新采用读-改-写模式，JSON 字符串解析与合并。
 - 图遍历与检索
   - 获取邻居、前驱/后继、三元组、断连节点等。
@@ -141,6 +147,8 @@ Remote-->>App : 处理后的结果
 - 错误处理与回退
   - 批量写入遇到可恢复冲突（写写冲突/重复键）时，自动降级为逐条写入。
   - 边插入静默失败场景进行告警提示。
+
+**更新** 新增了 `query_by_attributes` 方法，支持区分规范属性和自定义属性的灵活查询
 
 ```mermaid
 classDiagram
@@ -160,6 +168,7 @@ class KuzuAdapter {
 +checkpoint() void
 +close() void
 +reopen() void
++query_by_attributes(filters) Tuple[List, List]
 }
 ```
 
@@ -170,6 +179,7 @@ class KuzuAdapter {
 - [adapter.py:820-966](file://m_flow/adapters/graph/kuzu/adapter.py#L820-L966)
 - [adapter.py:997-1074](file://m_flow/adapters/graph/kuzu/adapter.py#L997-L1074)
 - [adapter.py:1103-1254](file://m_flow/adapters/graph/kuzu/adapter.py#L1103-L1254)
+- [adapter.py:1207-1254](file://m_flow/adapters/graph/kuzu/adapter.py#L1207-L1254)
 - [adapter.py:1521-1551](file://m_flow/adapters/graph/kuzu/adapter.py#L1521-L1551)
 
 **章节来源**
@@ -179,7 +189,39 @@ class KuzuAdapter {
 - [adapter.py:820-966](file://m_flow/adapters/graph/kuzu/adapter.py#L820-L966)
 - [adapter.py:997-1074](file://m_flow/adapters/graph/kuzu/adapter.py#L997-L1074)
 - [adapter.py:1103-1254](file://m_flow/adapters/graph/kuzu/adapter.py#L1103-L1254)
+- [adapter.py:1207-1254](file://m_flow/adapters/graph/kuzu/adapter.py#L1207-L1254)
 - [adapter.py:1521-1551](file://m_flow/adapters/graph/kuzu/adapter.py#L1521-L1551)
+
+### 属性过滤功能（新增）
+- 规范属性过滤
+  - 支持直接过滤节点的规范属性：id、name、type、created_at、updated_at
+  - 使用标准 Cypher 属性访问语法，性能最优
+- 自定义属性过滤
+  - 支持从 JSON 格式的 properties 字段中提取和过滤自定义属性
+  - 使用 `json_extract_string` 函数进行 JSON 路径查询
+  - 支持嵌套属性的点号表示法（如 `properties.nested.field`）
+- 查询优化策略
+  - 规范属性使用直接比较，自定义属性使用 JSON 提取函数
+  - 自动参数化查询，防止 SQL 注入攻击
+  - 支持多个属性条件的组合查询
+
+```mermaid
+flowchart TD
+Start["属性过滤查询"] --> CheckAttr{"检查属性类型"}
+CheckAttr --> |规范属性| Direct["n.attr IN $vals"]
+CheckAttr --> |自定义属性| JSONExtract["json_extract_string(n.properties, '$.attr') IN $vals"]
+Direct --> Combine["组合 WHERE 条件"]
+JSONExtract --> Combine
+Combine --> Execute["执行查询"]
+Execute --> Return["返回节点和边数据"]
+```
+
+**图表来源**
+- [adapter.py:1207-1254](file://m_flow/adapters/graph/kuzu/adapter.py#L1207-L1254)
+
+**章节来源**
+- [adapter.py:1207-1254](file://m_flow/adapters/graph/kuzu/adapter.py#L1207-L1254)
+- [test_kuzu_query_by_attributes.py:19-35](file://m_flow/tests/unit/infrastructure/graph/test_kuzu_query_by_attributes.py#L19-L35)
 
 ### 远程 REST 适配器（RemoteKuzuAdapter）
 - 会话管理
@@ -326,11 +368,12 @@ I --> B
 
 ## 性能考虑
 - 写入吞吐
-  - 批量 MERGE 时采用“端点分区”策略减少写写冲突；冲突时自动降级为逐条写入。
+  - 批量 MERGE 时采用"端点分区"策略减少写写冲突；冲突时自动降级为逐条写入。
   - 节点/边去重提升批量写入效率，减少重复键冲突。
 - 查询执行
   - 使用异步执行器与查询锁避免连接竞争；对复杂查询建议拆分批处理。
   - 属性过滤使用 JSON 提取函数，注意索引缺失时的扫描成本。
+  - **更新** 规范属性过滤使用直接比较，性能优于 JSON 提取函数。
 - 内存与磁盘
   - 通过环境变量调节缓冲池与最大数据库容量；默认禁用自动检查点以降低 WAL 刷新频率，显式调用以确保持久化。
   - S3 同步仅在 STORAGE_BACKEND 为 "s3" 时启用，避免不必要的网络开销。
@@ -348,9 +391,10 @@ I --> B
 - 常见错误与处理
   - 写写冲突/重复键：自动触发批量回退到逐条写入；检查输入数据去重与端点分区策略。
   - 边插入静默失败：当源/目标节点不存在时 MERGE 不生效，记录告警并建议先验证节点存在性。
-  - 文件锁残留：启动时清理 .lock/.wal 与父目录同名锁文件；必要时启用“激进清理”。
+  - 文件锁残留：启动时清理 .lock/.wal 与父目录同名锁文件；必要时启用"激进清理"。
   - 版本不匹配：检测存储版本并尝试迁移；失败时检查虚拟环境与导出/导入流程。
   - 远程连接异常：检查 API 地址、认证信息与 SSL 上下文；确认首次查询前已初始化表结构。
+  - **更新** 属性过滤失败：检查属性名称是否正确，规范属性使用直接访问，自定义属性使用 JSON 路径。
 - 日志与诊断
   - 关键路径均记录调试/警告/错误日志，便于定位问题。
   - 提供图统计接口辅助评估数据规模与连通性。
@@ -365,7 +409,7 @@ I --> B
 - [adapter.py:1553-1599](file://m_flow/adapters/graph/kuzu/adapter.py#L1553-L1599)
 
 ## 结论
-KùzuDB 本地图数据库适配器在 M-Flow 中提供了高性能、可扩展的图数据存储方案。通过本地嵌入式与远程 REST 两种模式，结合数据集级隔离、并发控制与版本迁移工具，能够满足从单机开发到分布式部署的多种场景需求。建议在生产环境中合理配置内存与磁盘参数，配合检查点与锁清理策略，确保数据一致性与稳定性。
+KùzuDB 本地图数据库适配器在 M-Flow 中提供了高性能、可扩展的图数据存储方案。通过本地嵌入式与远程 REST 两种模式，结合数据集级隔离、并发控制与版本迁移工具，能够满足从单机开发到分布式部署的多种场景需求。**更新** 新增的属性过滤功能显著提升了图节点查询的灵活性，通过区分规范属性和自定义属性的处理策略，既保证了查询性能又提供了强大的查询能力。建议在生产环境中合理配置内存与磁盘参数，配合检查点与锁清理策略，确保数据一致性与稳定性。
 
 ## 附录
 
@@ -378,10 +422,10 @@ KùzuDB 本地图数据库适配器在 M-Flow 中提供了高性能、可扩展�
 ### 测试参考
 - 本地集成测试：验证空库状态、记忆化后非空、检索模式与清理验证。
 - 远程测试：覆盖远程适配器初始化、查询与清理流程。
-- 属性过滤测试：验证按节点属性过滤返回节点与边集合。
+- **更新** 属性过滤测试：验证按节点属性过滤返回节点与边集合，包括规范属性和自定义属性的处理。
 
 **章节来源**
 - [test_kuzu.py:30-152](file://m_flow/tests/test_kuzu.py#L30-L152)
 - [test_remote_kuzu.py](file://m_flow/tests/test_remote_kuzu.py)
 - [test_remote_kuzu_stress.py](file://m_flow/tests/test_remote_kuzu_stress.py)
-- [test_kuzu_query_by_attributes.py](file://m_flow/tests/unit/infrastructure/graph/test_kuzu_query_by_attributes.py)
+- [test_kuzu_query_by_attributes.py:19-35](file://m_flow/tests/unit/infrastructure/graph/test_kuzu_query_by_attributes.py#L19-L35)
