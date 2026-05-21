@@ -87,6 +87,8 @@ export function MainContent() {
         return <IngestPage />;
       case "memorize-add":
         return <AddPage />;
+      case "memorize-wiki":
+        return <FileUpload initialMode="wiki" />;
       case "memorize-process":
         return <MemorizePage />;
       case "memorize-manual":

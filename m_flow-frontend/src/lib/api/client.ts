@@ -46,6 +46,10 @@ import {
   ResponsesRequest,
   ResponsesResponse,
   SearchOptionsWithCoref,
+  WikiIngestTextRequest,
+  WikiIngestUploadOptions,
+  WikiCollectionResponse,
+  WikiPageInfo,
 } from "@/types";
 import { config, STORAGE_KEYS } from "@/lib/config";
 
@@ -649,6 +653,86 @@ export class MflowApiClient {
     }
 
     return response.json();
+  }
+
+  // --------------------------------------------------------------------------
+  // Wiki Ingestion
+  // --------------------------------------------------------------------------
+
+  /**
+   * Wiki text ingestion
+   *
+   * @endpoint POST /api/v1/wiki/ingest
+   */
+  async ingestWikiText(request: WikiIngestTextRequest): Promise<WikiCollectionResponse> {
+    return this.request<WikiCollectionResponse>("/api/v1/wiki/ingest", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+  }
+
+  /**
+   * Wiki file upload ingestion
+   *
+   * @endpoint POST /api/v1/wiki/ingest/upload
+   */
+  async ingestWikiFiles(
+    files: File[],
+    options: WikiIngestUploadOptions = {}
+  ): Promise<WikiCollectionResponse> {
+    const formData = new FormData();
+    files.forEach((file) => formData.append("data", file));
+
+    if (options.datasetName) {
+      formData.append("datasetName", options.datasetName);
+    }
+    if (options.upgradeAfterIngest !== undefined) {
+      formData.append("upgrade_after_ingest", String(options.upgradeAfterIngest));
+    }
+
+
+    const headers: HeadersInit = {};
+    if (this.token) {
+      headers["Authorization"] = `Bearer ${this.token}`;
+    }
+
+    const response = await fetch(`${this.baseUrl}/api/v1/wiki/ingest/upload`, {
+      method: "POST",
+      body: formData,
+      headers,
+      credentials: "include",
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({
+        code: "WIKI_INGEST_FAILED",
+        message: "Wiki ingest failed",
+      }));
+      throw ServiceFault.fromResponse(errorData);
+    }
+
+
+    return response.json();
+  }
+
+
+  /**
+   * Get wiki collection details
+   *
+   * @endpoint GET /api/v1/wiki/collections/{collection_id}
+   */
+  async getWikiCollection(collectionId: string): Promise<WikiCollectionResponse> {
+    return this.request<WikiCollectionResponse>(`/api/v1/wiki/collections/${collectionId}`);
+  }
+
+
+  /**
+   * Get wiki collection pages
+   *
+   * @endpoint GET /api/v1/wiki/collections/{collection_id}/pages
+   */
+  async getWikiCollectionPages(collectionId: string): Promise<{ collection_id: string; pages: WikiPageInfo[] }> {
+    return this.request(`/api/v1/wiki/collections/${collectionId}/pages`);
   }
 
   // --------------------------------------------------------------------------

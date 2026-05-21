@@ -683,6 +683,73 @@ export interface MemorizeProgress {
 }
 
 // ============================================================================
+// Wiki Ingestion Types
+// ============================================================================
+
+/**
+ * Import processing mode selection
+ */
+export type ImportProcessingMode = "wiki" | "mflow" | "wiki_then_mflow";
+
+/**
+ * Wiki text ingestion request
+ *
+ * @endpoint POST /api/v1/wiki/ingest
+ */
+export interface WikiIngestTextRequest {
+  content: string;
+  dataset_name?: string;
+  upgrade_after_ingest?: boolean;
+}
+
+
+/**
+ * Wiki file upload options
+ *
+ * @endpoint POST /api/v1/wiki/ingest/upload
+ */
+export interface WikiIngestUploadOptions {
+  datasetName?: string;
+  upgradeAfterIngest?: boolean;
+}
+
+
+/**
+ * Wiki collection response
+ */
+export interface WikiCollectionResponse {
+  id: string;
+  dataset_id: string;
+  title: string;
+  status: WikiCollectionStatus;
+}
+
+/**
+ * Wiki collection status values
+ */
+export type WikiCollectionStatus =
+  | "processing"
+  | "ready"
+  | "failed"
+  | "upgrading"
+  | "upgraded"
+  | "not_found";
+
+/**
+ * Wiki page info
+ */
+export interface WikiPageInfo {
+  id: string;
+  path: string;
+  title: string;
+  page_type: string;
+  excerpt?: string;
+  content?: string;
+  file_uri?: string;
+}
+
+
+// ============================================================================
 // Manual Ingestion Types
 // ============================================================================
 

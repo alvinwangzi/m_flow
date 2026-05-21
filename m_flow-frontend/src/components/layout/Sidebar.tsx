@@ -76,6 +76,7 @@ const mainNavItems: NavItem[] = [
     children: [
       { id: "memorize-ingest", label: "Quick Import", icon: <FolderInput size={16} strokeWidth={1.5} /> },
       { id: "memorize-add", label: "Add Content", icon: <Edit3 size={16} strokeWidth={1.5} /> },
+      { id: "memorize-wiki", label: "Wiki Import", icon: <BookOpen size={16} strokeWidth={1.5} /> },
       { id: "memorize-process", label: "Build Graph", icon: <Sparkles size={16} strokeWidth={1.5} /> },
       { id: "memorize-manual", label: "Structured Entry", icon: <FileText size={16} strokeWidth={1.5} /> },
       { id: "memorize-learn", label: "Extract Procedures", icon: <BookOpen size={16} strokeWidth={1.5} /> },

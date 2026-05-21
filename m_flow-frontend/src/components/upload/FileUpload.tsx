@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useIngestText, useIngestFiles } from "@/hooks/use-api";
 import { useMemorizeWebSocket } from "@/hooks/use-memorize-websocket";
 import { useIngestionConfigStore } from "@/lib/store";
+import { ImportProcessingMode } from "@/types";
+import { apiClient } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -39,7 +41,11 @@ import {
 // Main Component
 // ============================================================================
 
-export function FileUpload() {
+interface FileUploadProps {
+  initialMode?: ImportProcessingMode;
+}
+
+export function FileUpload(props: FileUploadProps = {}) {
   // File state
   const [files, setFiles] = useState<FileWithStatus[]>([]);
   const [textInput, setTextInput] = useState("");
@@ -60,6 +66,11 @@ export function FileUpload() {
   
   // Fixed to "error" mode - prevent concurrent memorize operations on the same dataset
   const conflictMode = "error" as const;
+
+  // Processing mode selection (can be overridden via initialMode prop)
+  const [processingMode, setProcessingMode] = useState<ImportProcessingMode>(
+    (props as { initialMode?: ImportProcessingMode }).initialMode ?? "mflow"
+  );
 
   // Progress tracking state
   const [pipelineRunId, setPipelineRunId] = useState<string | null>(null);
@@ -179,28 +190,41 @@ export function FileUpload() {
     // Ingest text content
     if (textInput.trim()) {
       try {
-        const response = await ingestText.mutateAsync({
-          content: textInput,
-          dataset_name: targetDataset,
-          skip_memorize: skipMemorize,
-          run_in_background: runInBackground,
-          enable_episode_routing: enableEpisodeRouting,
-          enable_content_routing: enableContentRouting,
-          enable_procedural: enableProcedural,
-          conflict_mode: conflictMode,
-        });
-        
-        setTextInput("");
-        
-        // Track progress if running in background
-        if (runInBackground && response.memorize_run_id) {
-          setPipelineRunId(response.memorize_run_id);
-          setProcessedDatasetName(targetDataset);
-          toast.info("Text ingested - tracking progress...");
-        } else if (response.status === "completed") {
-          toast.success("Text ingested and knowledge graph built");
+        // Route based on processing mode
+        if (processingMode === "wiki" || processingMode === "wiki_then_mflow") {
+          // Use wiki text ingest
+          const response = await apiClient.ingestWikiText({
+            content: textInput,
+            dataset_name: targetDataset,
+            upgrade_after_ingest: processingMode === "wiki_then_mflow",
+          });
+          setTextInput("");
+          toast.success(`Wiki generated: ${response.title}`);
         } else {
-          toast.success("Text added to dataset");
+          // Use standard mflow ingest
+          const response = await ingestText.mutateAsync({
+            content: textInput,
+            dataset_name: targetDataset,
+            skip_memorize: skipMemorize,
+            run_in_background: runInBackground,
+            enable_episode_routing: enableEpisodeRouting,
+            enable_content_routing: enableContentRouting,
+            enable_procedural: enableProcedural,
+            conflict_mode: conflictMode,
+          });
+          
+          setTextInput("");
+          
+          // Track progress if running in background
+          if (runInBackground && response.memorize_run_id) {
+            setPipelineRunId(response.memorize_run_id);
+            setProcessedDatasetName(targetDataset);
+            toast.info("Text ingested - tracking progress...");
+          } else if (response.status === "completed") {
+            toast.success("Text ingested and knowledge graph built");
+          } else {
+            toast.success("Text added to dataset");
+          }
         }
       } catch (error) {
         const actionableMessage = getActionableErrorMessage(error instanceof Error ? error : "Failed to ingest text");
@@ -217,25 +241,44 @@ export function FileUpload() {
       ));
 
       try {
-        const response = await ingestFiles.mutateAsync({
-          files: pendingFiles.map(f => f.file),
-          options,
-        });
+        // Route based on processing mode
+        if (processingMode === "wiki" || processingMode === "wiki_then_mflow") {
+          // Use wiki ingest
+          const response = await apiClient.ingestWikiFiles(
+            pendingFiles.map(f => f.file),
+            {
+              datasetName: targetDataset,
+              upgradeAfterIngest: processingMode === "wiki_then_mflow",
+            }
+          );
 
-        // Mark all as success
-        setFiles((prev) => prev.map((f) => 
-          f.status === "uploading" ? { ...f, status: "success" as const } : f
-        ));
-
-        // Track progress if running in background
-        if (runInBackground && response.memorize_run_id) {
-          setPipelineRunId(response.memorize_run_id);
-          setProcessedDatasetName(targetDataset);
-          toast.info(`${pendingFiles.length} file(s) ingested - tracking progress...`);
-        } else if (response.status === "completed") {
-          toast.success(`${pendingFiles.length} file(s) ingested and knowledge graph built`);
+          // Mark all as success
+          setFiles((prev) => prev.map((f) => 
+            f.status === "uploading" ? { ...f, status: "success" as const } : f
+          ));
+          toast.success(`Wiki generated: ${response.title}`);
         } else {
-          toast.success(`${pendingFiles.length} file(s) added to dataset`);
+          // Use standard mflow ingest
+          const response = await ingestFiles.mutateAsync({
+            files: pendingFiles.map(f => f.file),
+            options,
+          });
+
+          // Mark all as success
+          setFiles((prev) => prev.map((f) => 
+            f.status === "uploading" ? { ...f, status: "success" as const } : f
+          ));
+
+          // Track progress if running in background
+          if (runInBackground && response.memorize_run_id) {
+            setPipelineRunId(response.memorize_run_id);
+            setProcessedDatasetName(targetDataset);
+            toast.info(`${pendingFiles.length} file(s) ingested - tracking progress...`);
+          } else if (response.status === "completed") {
+            toast.success(`${pendingFiles.length} file(s) ingested and knowledge graph built`);
+          } else {
+            toast.success(`${pendingFiles.length} file(s) added to dataset`);
+          }
         }
       } catch (error) {
         // Mark all uploading as error
@@ -434,6 +477,32 @@ export function FileUpload() {
             className="overflow-hidden"
           >
             <div className="pt-4 border-t border-[var(--border-subtle)] space-y-4">
+              {/* Processing Mode Selection */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Label className="text-[13px]">Processing Mode</Label>
+                  <div className="group relative">
+                    <Info size={12} className="text-[var(--text-muted)] cursor-help" />
+                    <div className="absolute bottom-full left-0 mb-1 px-2 py-1 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded text-[10px] text-[var(--text-muted)] w-56 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                      Wiki mode is faster and uses less tokens. M-flow精细记忆 builds richer graph connections but is slower.
+                    </div>
+                  </div>
+                </div>
+                <select
+                  value={processingMode}
+                  onChange={(e) => setProcessingMode(e.target.value as ImportProcessingMode)}
+                  disabled={isUploading}
+                  className={cn(
+                    "w-full px-3 py-2 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-md text-[13px] text-[var(--text-primary)] focus:outline-none focus:border-[var(--border-default)] cursor-pointer",
+                    isUploading && "opacity-50 cursor-not-allowed"
+                  )}
+                >
+                  <option value="mflow">M-flow 精细记忆 (slower, richer)</option>
+                  <option value="wiki">Wiki 快速模式 (faster, lighter)</option>
+                  <option value="wiki_then_mflow">Wiki + 后台精细记忆 (balanced)</option>
+                </select>
+              </div>
+
               {/* Skip Memorize */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">

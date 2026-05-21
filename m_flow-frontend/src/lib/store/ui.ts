@@ -15,6 +15,7 @@ export type View =
   | "memorize"
   | "memorize-ingest"
   | "memorize-add"
+  | "memorize-wiki"
   | "memorize-process"
   | "memorize-manual"
   | "memorize-learn"
