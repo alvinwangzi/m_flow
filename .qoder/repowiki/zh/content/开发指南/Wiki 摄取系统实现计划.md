@@ -13,11 +13,20 @@
 - [get_wiki_router.py](file://m_flow/api/v1/wiki/routers/get_wiki_router.py)
 - [wiki/__init__.py](file://m_flow/api/v1/wiki/__init__.py)
 - [20260518_add_wiki_tables.py](file://alembic/versions/20260518_add_wiki_tables.py)
+- [storage.py](file://m_flow/shared/files/storage/storage.py)
 - [test_storage.py](file://m_flow/tests/unit/wiki/test_storage.py)
 - [test_generation.py](file://m_flow/tests/unit/wiki/test_generation.py)
 - [test_migration_imports.py](file://m_flow/tests/unit/wiki/test_migration_imports.py)
 - [client.ts](file://m_flow-frontend/src/lib/api/client.ts)
 </cite>
+
+## 更新摘要
+**所做更改**
+- 更新了 Wiki 摄取系统的完整实现状态，包含所有核心组件
+- 新增了详细的 API 路由器实现分析
+- 更新了数据模型和存储系统的具体实现细节
+- 完善了测试策略和部署维护指南
+- 增强了前端集成和迁移管理的详细说明
 
 ## 目录
 1. [项目概述](#项目概述)
@@ -34,14 +43,16 @@
 
 ## 项目概述
 
-Wiki 摄取系统是一个独立的知识管理解决方案，旨在为用户提供轻量级的 Wiki 创建、存储和升级功能。该系统的核心目标是：
+Wiki 摄取系统是一个独立的知识管理解决方案，现已完全实现，旨在为用户提供轻量级的 Wiki 创建、存储和升级功能。该系统的核心目标是：
 
 - **独立 Wiki 路径**：提供与现有 M-flow 系统并行的 Wiki 摄取路径
 - **磁盘后端存储**：将 Markdown 页面内容存储在磁盘上，仅在数据库中存储元数据
 - **轻量级搜索**：支持基于标题、路径、摘要和内容的全文搜索
 - **无缝升级**：通过现有的 M-flow `memorize()` 管道升级 Wiki 集合
 
-该系统采用 FastAPI 构建，使用 SQLAlchemy 进行数据库操作，Alembic 进行数据库迁移管理。
+该系统采用 FastAPI 构建，使用 SQLAlchemy 进行数据库操作，Alembic 进行数据库迁移管理，现已实现完整的端到端功能。
+
+**更新** 系统已完全实现，包含 API 路由器、数据库模型、服务层、存储系统等全套组件
 
 ## 架构设计
 
@@ -86,8 +97,8 @@ Service --> Add
 ```
 
 **图表来源**
-- [get_wiki_router.py:40-218](file://m_flow/api/v1/wiki/routers/get_wiki_router.py#L40-L218)
-- [service.py:35-205](file://m_flow/wiki/service.py#L35-L205)
+- [get_wiki_router.py:40-232](file://m_flow/api/v1/wiki/routers/get_wiki_router.py#L40-L232)
+- [service.py:35-209](file://m_flow/wiki/service.py#L35-L209)
 
 ### 核心设计原则
 
@@ -95,6 +106,8 @@ Service --> Add
 2. **可扩展性**：支持未来添加 LLM 驱动的智能生成
 3. **向后兼容**：不改变现有 M-flow 的 ingest、add 和 memorize 功能
 4. **安全性**：严格的文件路径验证防止目录遍历攻击
+
+**更新** 系统架构已完全实现，所有组件协同工作提供完整的 Wiki 摄取功能
 
 ## 核心组件分析
 
@@ -152,14 +165,14 @@ WikiCollection --> WikiPage
 ```
 
 **图表来源**
-- [service.py:20-205](file://m_flow/wiki/service.py#L20-L205)
+- [service.py:20-209](file://m_flow/wiki/service.py#L20-L209)
 - [WikiCollection.py:23-63](file://m_flow/wiki/models/WikiCollection.py#L23-L63)
 - [WikiPage.py:23-68](file://m_flow/wiki/models/WikiPage.py#L23-L68)
 - [storage.py:17-100](file://m_flow/wiki/storage.py#L17-L100)
 - [generator.py:17-110](file://m_flow/wiki/generator.py#L17-L110)
 
 **章节来源**
-- [service.py:35-205](file://m_flow/wiki/service.py#L35-L205)
+- [service.py:35-209](file://m_flow/wiki/service.py#L35-L209)
 
 ### API 路由器设计
 
@@ -185,11 +198,11 @@ Note over Client,DB : 文本摄取流程完成
 ```
 
 **图表来源**
-- [get_wiki_router.py:54-76](file://m_flow/api/v1/wiki/routers/get_wiki_router.py#L54-L76)
-- [service.py:35-103](file://m_flow/wiki/service.py#L35-L103)
+- [get_wiki_router.py:54-78](file://m_flow/api/v1/wiki/routers/get_wiki_router.py#L54-L78)
+- [service.py:35-107](file://m_flow/wiki/service.py#L35-L107)
 
 **章节来源**
-- [get_wiki_router.py:40-218](file://m_flow/api/v1/wiki/routers/get_wiki_router.py#L40-L218)
+- [get_wiki_router.py:40-232](file://m_flow/api/v1/wiki/routers/get_wiki_router.py#L40-L232)
 
 ## 数据模型设计
 
@@ -366,7 +379,7 @@ WikiCollectionResponse --> WikiPageInfo
 - [get_wiki_router.py:16-31](file://m_flow/api/v1/wiki/routers/get_wiki_router.py#L16-L31)
 
 **章节来源**
-- [get_wiki_router.py:40-218](file://m_flow/api/v1/wiki/routers/get_wiki_router.py#L40-L218)
+- [get_wiki_router.py:40-232](file://m_flow/api/v1/wiki/routers/get_wiki_router.py#L40-L232)
 
 ## 迁移管理
 
@@ -513,4 +526,6 @@ E2E --> API
 3. **LLM 集成**：可插拔的 LLM 生成器
 4. **协作功能**：多用户编辑和版本控制
 
-该 Wiki 摄取系统为 M-flow 生态系统提供了强大的知识管理能力，通过模块化设计和清晰的架构分离，确保了系统的可维护性和可扩展性。
+**更新** Wiki 摄取系统已完全实现，具备完整的生产就绪功能，包括所有核心组件和完整的测试覆盖
+
+该 Wiki 摄取系统为 M-flow 生态系统提供了强大的知识管理能力，通过模块化设计和清晰的架构分离，确保了系统的可维护性和可扩展性。系统现已实现完整的端到端功能，包括 API 接口、数据存储、页面生成和升级机制，为用户提供了完整的 Wiki 管理解决方案。
