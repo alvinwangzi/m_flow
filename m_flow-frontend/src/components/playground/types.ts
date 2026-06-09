@@ -31,10 +31,19 @@ export interface CorefResolution {
   resolved: string;
 }
 
+export interface RetrievalSource {
+  type: "memory" | "wiki";
+  label?: string;
+  dataset_name?: string;
+  title?: string;
+  excerpt?: string;
+}
+
 export interface Message {
   role: "user" | "assistant" | "system";
   content: string;
   speakerName?: string;
   timestamp?: number;
   corefResolutions?: CorefResolution[];
+  retrievalSources?: RetrievalSource[];
 }

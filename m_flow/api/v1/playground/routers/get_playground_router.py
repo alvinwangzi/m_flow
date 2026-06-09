@@ -46,7 +46,7 @@ from ..face_bridge import (
     save_face_mapping,
     rename_person,
 )
-from ..retriever import retrieve_memories
+from ..retriever import retrieve_memories, retrieve_wiki_context
 
 _log = get_logger(__name__)
 
@@ -250,7 +250,12 @@ def get_playground_router() -> APIRouter:
                 "resolved_dataset_ids": all_dataset_ids,
             },
         )
-        retrieval = await retrieve_memories(resolved_query, all_dataset_ids, user=user)
+        # Search both M-flow memories and Wiki pages in parallel
+        import asyncio
+        retrieval, wiki_retrieval = await asyncio.gather(
+            retrieve_memories(resolved_query, all_dataset_ids, user=user),
+            retrieve_wiki_context(resolved_query, user=user),
+        )
         t4 = _t.perf_counter()
 
         _log.info(
@@ -261,9 +266,16 @@ def get_playground_router() -> APIRouter:
             f"total_prep={int((t4 - t0) * 1000)}ms"
         )
 
-        memory_section = ""
+        # Build merged memory section from both sources
+        memory_parts = []
         if not retrieval.empty:
-            memory_section = f"\nRelevant memories:\n{retrieval.context}\n"
+            memory_parts.append(retrieval.context)
+        if not wiki_retrieval.empty:
+            memory_parts.append(wiki_retrieval.context)
+
+        memory_section = ""
+        if memory_parts:
+            memory_section = f"\nRelevant memories:\n" + "\n---\n".join(memory_parts) + "\n"
 
         context_block = (
             f"People present:\n{persons_desc}\n\n"
@@ -310,15 +322,33 @@ def get_playground_router() -> APIRouter:
             for p in persons
         ]
 
+        # Build retrieval source info for frontend display
+        retrieval_sources = []
+        if not retrieval.empty:
+            # For memory sources, use the full context as excerpt
+            retrieval_sources.append({
+                "type": "memory",
+                "label": retrieval.dataset_sources[0].get("dataset_name", "Knowledge Graph") if retrieval.dataset_sources else "Knowledge Graph",
+                "excerpt": retrieval.context,
+            })
+        if not wiki_retrieval.empty:
+            for ws in wiki_retrieval.wiki_sources:
+                retrieval_sources.append({
+                    "type": "wiki",
+                    "label": ws.get("title", "Wiki"),
+                    "excerpt": ws.get("excerpt", ""),
+                })
+
         return {
             "session": session,
             "llm_messages": llm_messages,
             "speaker_info": speaker_info,
             "persons_in_frame": persons_in_frame,
             "new_links": new_links,
-            "has_memory_context": not retrieval.empty,
+            "has_memory_context": not retrieval.empty or not wiki_retrieval.empty,
             "coref_info": coref_info,
             "coref_debug": coref_debug,
+            "retrieval_sources": retrieval_sources,
         }
 
     def _build_done_payload(
@@ -331,6 +361,7 @@ def get_playground_router() -> APIRouter:
         coref_debug,
         full_reply,
         flush_result,
+        retrieval_sources=None,
     ):
         return {
             "full_reply": full_reply,
@@ -354,6 +385,7 @@ def get_playground_router() -> APIRouter:
             "has_memory_context": has_memory_context,
             "coref_resolutions": coref_info,
             "coref_debug": coref_debug,
+            "retrieval_sources": retrieval_sources or [],
         }
 
     # ------------------------------------------------------------------
@@ -452,6 +484,7 @@ def get_playground_router() -> APIRouter:
                 coref_debug=ctx["coref_debug"],
                 full_reply=full_reply,
                 flush_result=flush_result,
+                retrieval_sources=ctx.get("retrieval_sources", []),
             )
             yield f"event: done\ndata: {json.dumps(done_data)}\n\n"
 

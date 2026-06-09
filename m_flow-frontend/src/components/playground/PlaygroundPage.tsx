@@ -10,7 +10,7 @@ import { PlaygroundSettings } from "./PlaygroundSettings";
 import { VisionSettings } from "./VisionSettings";
 import { CorefDebugPanel, type CorefDebugData } from "./CorefDebugPanel";
 import { PlaygroundMarkdownMessage } from "./PlaygroundMarkdownMessage";
-import type { Message, PersonInFrame, MemoryStatus, NewFaceLink, CorefResolution } from "./types";
+import type { Message, PersonInFrame, MemoryStatus, NewFaceLink, CorefResolution, RetrievalSource } from "./types";
 
 const API = config.API_BASE_URL;
 
@@ -43,6 +43,7 @@ export function PlaygroundPage() {
   const speakerIdsDetectedRef = useRef<Set<number>>(new Set());
   const [corefDebug, setCorefDebug] = useState<CorefDebugData | null>(null);
   const [corefHistory, setCorefHistory] = useState<CorefDebugData[]>([]);
+  const [sourceDetail, setSourceDetail] = useState<RetrievalSource | null>(null);
   const [pgConfig, setPgConfig] = useState({
     flush_token_threshold: 2000, flush_turn_threshold: 10, face_recognition_url: "http://localhost:5001",
     llm_preset: "default", llm_model: "", llm_endpoint: "", llm_api_key: "",
@@ -239,6 +240,21 @@ export function PlaygroundPage() {
 
             if (currentEvent === "done") {
               const data = payload;
+
+              // Attach retrieval sources to the last assistant message
+              const sources = data.retrieval_sources as RetrievalSource[] | null;
+              if (sources && sources.length > 0) {
+                setMessages(prev => {
+                  const updated = [...prev];
+                  for (let i = updated.length - 1; i >= 0; i--) {
+                    if (updated[i].role === "assistant") {
+                      updated[i] = { ...updated[i], retrievalSources: sources };
+                      break;
+                    }
+                  }
+                  return updated;
+                });
+              }
 
               const corefRes = data.coref_resolutions as CorefResolution[] | null;
               if (corefRes && corefRes.length > 0) {
@@ -631,6 +647,27 @@ export function PlaygroundPage() {
                       </div>
                     </div>
                   )}
+                  {msg.retrievalSources && msg.retrievalSources.length > 0 && (
+                    <div className="mt-1.5 pt-1.5 border-t border-white/5 flex flex-wrap gap-1">
+                      {msg.retrievalSources.map((src, si) => (
+                        <button
+                          key={si}
+                          onClick={() => setSourceDetail(src)}
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] cursor-pointer transition-all hover:scale-105 ${
+                            src.type === "wiki"
+                              ? "bg-purple-500/15 text-purple-400/80 border border-purple-500/20 hover:bg-purple-500/25 hover:border-purple-500/40"
+                              : "bg-blue-500/15 text-blue-400/80 border border-blue-500/20 hover:bg-blue-500/25 hover:border-blue-500/40"
+                          }`}
+                          title={`点击查看: ${src.label || (src.type === "wiki" ? "Wiki" : "Memory")}`}
+                        >
+                          {src.type === "wiki" ? "📖" : "🧠"}
+                          <span className="truncate max-w-[120px]">
+                            {src.label || (src.type === "wiki" ? (src.title || "Wiki") : (src.dataset_name || "Memory"))}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )
@@ -752,6 +789,54 @@ export function PlaygroundPage() {
           onClose={() => setShowChatSettings(false)}
           onSaved={(config) => setPgConfig(prev => ({ ...prev, ...config }))}
         />
+      )}
+
+      {/* Source detail modal */}
+      {sourceDetail && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setSourceDetail(null)}
+        >
+          <div
+            className="w-full max-w-2xl max-h-[80vh] mx-4 rounded-xl bg-[#141414] border border-[#2a2a2a] shadow-2xl flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-[#2a2a2a]">
+              <div className="flex items-center gap-2">
+                <span className="text-base">{sourceDetail.type === "wiki" ? "📖" : "🧠"}</span>
+                <span className={`text-xs px-1.5 py-0.5 rounded ${
+                  sourceDetail.type === "wiki"
+                    ? "bg-purple-500/20 text-purple-400"
+                    : "bg-blue-500/20 text-blue-400"
+                }`}>
+                  {sourceDetail.type === "wiki" ? "Wiki" : "Knowledge Graph"}
+                </span>
+                <span className="text-sm text-[#e0e0e0] font-medium truncate">
+                  {sourceDetail.label || sourceDetail.title || sourceDetail.dataset_name || "Source"}
+                </span>
+              </div>
+              <button
+                onClick={() => setSourceDetail(null)}
+                className="text-[#808080] hover:text-[#e0e0e0] transition-colors p-1"
+              >
+                ✕
+              </button>
+            </div>
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              {sourceDetail.excerpt ? (
+                <pre className="text-sm text-[#c0c0c0] whitespace-pre-wrap font-sans leading-relaxed">
+                  {sourceDetail.excerpt}
+                </pre>
+              ) : (
+                <div className="text-sm text-[#606060] text-center py-8">
+                  No content preview available
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

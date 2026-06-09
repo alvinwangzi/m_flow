@@ -40,6 +40,7 @@ async def create_wiki_from_text(
     add_func: Callable[..., Any] | None = None,
     session_factory: Callable[[], Any] | None = None,
     upgrade_after_ingest: bool = False,
+    original_files: list[tuple[str, bytes]] | None = None,
 ) -> WikiCreateResult:
     """
     Create a wiki collection from text content.
@@ -48,12 +49,13 @@ async def create_wiki_from_text(
     Preserves the original source document for reference.
 
     Args:
-        content: Source text content.
+        content: Source text content (already extracted).
         dataset_name: Name for the wiki collection.
         user: User creating the wiki.
         add_func: Optional M-flow add() function for data ingestion.
         session_factory: Optional database session factory for metadata persistence.
         upgrade_after_ingest: If True, trigger M-flow memorize after creation.
+        original_files: Optional list of (filename, raw_bytes) to preserve originals.
 
     Returns:
         WikiCreateResult with collection and pages.
@@ -74,8 +76,13 @@ async def create_wiki_from_text(
     storage = WikiStorage()
     pages: list[WikiPage] = []
 
-    # Save original source document first (before any processing)
-    storage.write_page(collection.id, "_source/original.txt", content)
+    # Save original source files (preserving binary format)
+    if original_files:
+        for filename, raw_bytes in original_files:
+            storage.write_binary(collection.id, f"_source/{filename}", raw_bytes)
+    else:
+        # Text-only ingest: save as text
+        storage.write_page(collection.id, "_source/original.txt", content)
 
     for generated in generate_wiki_pages(dataset_name, content):
         file_uri = storage.write_page(collection.id, generated.path, generated.content)

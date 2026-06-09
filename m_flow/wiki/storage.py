@@ -67,6 +67,23 @@ class WikiStorage:
         target.write_text(content, encoding="utf-8", newline="\n")
         return "file://" + str(target)
 
+    def write_binary(self, collection_id: UUID, relative_path: str, data: bytes) -> str:
+        """
+        Write binary data to disk (e.g., original .docx/.pdf files).
+
+        Args:
+            collection_id: Collection UUID.
+            relative_path: Relative path within collection.
+            data: Raw binary content.
+
+        Returns:
+            Absolute file:// URI to the written file.
+        """
+        target = self.resolve_page_path(collection_id, relative_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        return "file://" + str(target)
+
     def read_page(self, collection_id: UUID, relative_path: str) -> str:
         """Read markdown content from disk."""
         return self.resolve_page_path(collection_id, relative_path).read_text(encoding="utf-8")

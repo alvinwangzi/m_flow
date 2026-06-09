@@ -6,11 +6,17 @@ FastAPI router for wiki operations.
 
 from __future__ import annotations
 
+import os
+import tempfile
+from pathlib import Path
 from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel, Field
+
+# Binary document extensions that require specialized parsing
+_BINARY_EXTENSIONS = frozenset([".docx", ".doc", ".pdf", ".pptx", ".ppt", ".xlsx", ".xls", ".odt", ".rtf", ".epub"])
 
 
 class WikiIngestRequest(BaseModel):
@@ -77,6 +83,99 @@ def get_wiki_router() -> APIRouter:
             "status": result.collection.status,
         }
 
+    async def _extract_text_from_binary(raw_bytes: bytes, filename: str) -> str:
+        """Extract text from binary document formats (docx, pdf, etc.)."""
+        import io
+        import zipfile
+        import xml.etree.ElementTree as ET
+
+        from m_flow.shared.logging_utils import get_logger
+
+        _log = get_logger(__name__)
+        ext = Path(filename).suffix.lower()
+
+        # --- .docx: parse ZIP + XML using stdlib ---
+        if ext in (".docx", ".doc"):
+            try:
+                with zipfile.ZipFile(io.BytesIO(raw_bytes)) as zf:
+                    # word/document.xml contains the main text
+                    with zf.open("word/document.xml") as doc_xml:
+                        tree = ET.parse(doc_xml)
+                        root = tree.getroot()
+
+                        # Define namespace map
+                        ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+
+                        paragraphs = []
+                        for para in root.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p"):
+                            texts = []
+                            for t_elem in para.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"):
+                                if t_elem.text:
+                                    texts.append(t_elem.text)
+                            line = "".join(texts).strip()
+                            if line:
+                                paragraphs.append(line)
+
+                        if paragraphs:
+                            return "\n\n".join(paragraphs)
+            except Exception as exc:
+                _log.warning("docx stdlib parsing failed for %s: %s", filename, exc)
+
+        # --- .pdf: use pypdf ---
+        if ext == ".pdf":
+            try:
+                from pypdf import PdfReader
+
+                with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+                    tmp.write(raw_bytes)
+                    tmp_path = tmp.name
+
+                try:
+                    reader = PdfReader(tmp_path)
+                    pages = []
+                    for page in reader.pages:
+                        text = page.extract_text()
+                        if text and text.strip():
+                            pages.append(text)
+                    if pages:
+                        return "\n\n".join(pages)
+                finally:
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
+            except ImportError:
+                _log.warning("pypdf not available for PDF extraction")
+            except Exception as exc:
+                _log.warning("pypdf parsing failed for %s: %s", filename, exc)
+
+        # --- Fallback: try unstructured library ---
+        try:
+            from unstructured.partition.auto import partition
+
+            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+                tmp.write(raw_bytes)
+                tmp_path = tmp.name
+
+            try:
+                elements = partition(filename=tmp_path, strategy="fast")
+                segments = [str(el).strip() for el in elements if str(el).strip()]
+                if segments:
+                    return "\n\n".join(segments)
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+        except ImportError:
+            _log.warning("unstructured library not available for %s", ext)
+        except Exception as exc:
+            _log.error("unstructured partition failed for %s: %s", filename, exc)
+
+        # Last resort: try text decoding
+        _log.warning("Falling back to raw text decode for binary file %s", filename)
+        return raw_bytes.decode("utf-8", errors="replace")
+
     @router.post("/ingest/upload", response_model=WikiCollectionResponse)
     async def ingest_upload(
         data: list[UploadFile] = File(...),
@@ -87,24 +186,39 @@ def get_wiki_router() -> APIRouter:
         """
         Ingest uploaded files as wiki.
 
-        Reads uploaded files and generates wiki pages.
+        Supports text files (.txt, .md, .csv) and binary documents
+        (.docx, .pdf, .pptx, etc.). Binary documents are parsed using
+        unstructured/pypdf libraries.
         """
         from m_flow.adapters.relational import get_db_adapter
         from m_flow.wiki.service import create_wiki_from_text
 
         content_parts = []
+        original_files: list[tuple[str, bytes]] = []  # (filename, raw_bytes)
+
         for item in data:
-            # Try multiple encodings to handle various file encodings
             raw_bytes = await item.read()
-            content = None
-            for encoding in ["utf-8", "gbk", "gb2312", "gb18030"]:
-                try:
-                    content = raw_bytes.decode(encoding)
-                    break
-                except (UnicodeDecodeError, LookupError):
-                    continue
-            if content is None:
-                content = raw_bytes.decode("utf-8", errors="replace")
+            filename = item.filename or "unknown"
+            ext = Path(filename).suffix.lower()
+
+            # Save original file for archival
+            original_files.append((filename, raw_bytes))
+
+            if ext in _BINARY_EXTENSIONS:
+                # Binary document: use specialized parser
+                content = await _extract_text_from_binary(raw_bytes, filename)
+            else:
+                # Text file: try multiple encodings
+                content = None
+                for encoding in ["utf-8", "gbk", "gb2312", "gb18030"]:
+                    try:
+                        content = raw_bytes.decode(encoding)
+                        break
+                    except (UnicodeDecodeError, LookupError):
+                        continue
+                if content is None:
+                    content = raw_bytes.decode("utf-8", errors="replace")
+
             content_parts.append(content)
 
         db = get_db_adapter()
@@ -115,6 +229,7 @@ def get_wiki_router() -> APIRouter:
             add_func=None,
             session_factory=db.get_async_session,
             upgrade_after_ingest=upgrade_after_ingest,
+            original_files=original_files,
         )
         return {
             "id": str(result.collection.id),
